@@ -200,6 +200,41 @@ Global:log -text ("End") -Hierarchy "SegmentsGroups"
 $status_status | Where-Object { $_.report -eq 1 }
 
 
+#region Department Groups
+# group by, splitting 'name' instead of the comma separated value of multiple group-object columns
+Global:log -text ("Start") -Hierarchy "DepartmentGroups" 
+$raw_data_departments_groupby = $raw_user_data | Group-Object company, department | Select-Object @{name = "company"; expression = { ($_.Group[0].company).replace(" ", "_") } }, @{name = "department"; expression = { $_.Group[0].department } } | Sort-Object company
+
+$department_groups_existing = Get-ADGroup -SearchBase ($global:departments_ou) -filter * | Select-Object -ExpandProperty name
+
+
+
+$raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | ForEach-Object { #loop through company (segments) from the groupby array
+    $this_segment = $_
+    Global:log -text ("Start") -Hierarchy ("DepartmentGroups:{0}" -F $this_segment)
+    $raw_data_departments_groupby | Where-Object { $_.company -eq $this_segment } | Select-Object -ExpandProperty department | ForEach-Object { # all dpt in this segment
+        $this_department = $_
+        Global:log -text ("Start") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
+
+        Global:log -text ("existing?") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
+        if ( $department_groups_existing -contains $this_department) {
+            Global:log -text (" > Yes, Updating") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
+        }
+        else {
+            Global:log -text (" ! No, Creating") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
+        }
+
+        Global:log -text ("End") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
+    }
+    Global:log -text ("End") -Hierarchy ("DepartmentGroups:{0}" -F $this_segment)
+}
+Global:log -text ("End") -Hierarchy "DepartmentGroups" 
+
+
+
+#
+#endregion
+
 
 Global:log -text ("End") -Hierarchy "Main"
 #endregion # Main

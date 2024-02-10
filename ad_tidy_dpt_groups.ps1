@@ -74,6 +74,11 @@ $global:departments_ou = $global:Config.Configurations.'company groups'.departme
 #region get target OU attributes, looking for manager information
 $global:segments_ou_adobject = Get-ADOrganizationalUnit -Identity $global:segments_ou
 $global:segments_ou_manager = $global:segments_ou_adobject.ManagedBy
+
+$global:department_ou_adobject = Get-ADOrganizationalUnit -Identity $global:departments_ou
+$global:department_ou_manager = $global:department_ou_adobject.ManagedBy
+
+
 $global:group_security = 'Security'
 $global:group_scope = 'Universal'
 #endregion
@@ -271,11 +276,29 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
             }
         }
 
-        if ($status_log_row.exists -eq 1) {
-            <#
-             $global:Config 
-            -Replace @{info = $group_attribute_note }
-            #>
+        if ($status_log_row.exists -eq 0) {
+            Global:log -text ("Updating attributes") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
+            try {
+                # Attempt to update the group manager
+                Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value }
+                Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+                $this_result = $result_array_row | Select-Object *
+                $this_result.action = "update manager"
+                $this_result.result = "success"
+                $status_log_row.result = @($this_result)
+            }
+            catch {
+                # Catch and handle the error
+                $department_group_update_error = $_.Exception.Message
+                Global:log -text (" > Manager updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
+                $this_result = $result_array_row | Select-Object *
+                $this_result.action = "update manager"
+                $this_result.result = 'failed:{0}' -F $department_group_update_error 
+                $status_log_row.result = @($this_result)
+                $status_log_row.report = 1
+
+            }
+
         }
 
 
@@ -288,6 +311,7 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
 Global:log -text ("End") -Hierarchy "DepartmentGroups" 
 
 
+$whole_status | Where-Object { $_.report -eq 1 }
 
 #
 #endregion

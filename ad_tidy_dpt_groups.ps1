@@ -94,7 +94,7 @@ $status_log_row_template = "" | Select-Object type, group, exists, action, resul
 
 #region Segment Groups
 Global:log -text ("Start") -Hierarchy "SegmentsGroups" 
-$segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter * | Select-Object -ExpandProperty name
+$segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter * -Properties managedby, name | Select-Object name, managedby
 $segment_groups_required = $raw_data_segments_groupby | Select-Object -ExpandProperty name
 
 $whole_status = @()
@@ -106,32 +106,45 @@ $segment_groups_required | ForEach-Object {
     $status_log_row.type = "segment group"
     $result_array_row = "" | Select-Object action, result
     $status_log_row.group = $this_required_segment.replace(" ", "_")
-    if ( $segment_groups_existing -contains $status_log_row.group ) {
+    $segment_groups_names = $segment_groups_existing | Select-Object -ExpandProperty name
+    if ( $segment_groups_names -contains $status_log_row.group ) {
         $status_log_row.exists = $true
         $status_log_row.action = "update"
-        Global:log -text ("Update") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
-        try {
-            # Attempt to update the group manager
-            Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
-            $flag_segment_group_update_success = 1
-            Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+        Global:log -text ("Update?") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+        $current_manager = $segment_groups_existing | Where-Object { $_.name -eq $status_log_row.group } | Select-Object -ExpandProperty managedby
+        if ( $current_manager -eq $global:segments_ou_manager ) {
+            Global:log -text (" > not required. manager didn't change") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
             $this_result = $result_array_row | Select-Object *
             $this_result.action = "update manager"
-            $this_result.result = "success"
+            $this_result.result = "skipped"
             $status_log_row.result = @($this_result)
-        }
-        catch {
-            # Catch and handle the error
-            $segment_group_update_error = $_.Exception.Message
-            $flag_segment_group_update_success = 0
-            Global:log -text (" > Manager updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
-            $this_result = $result_array_row | Select-Object *
-            $this_result.action = "update manager"
-            $this_result.result = 'failed:{0}' -F $segment_group_update_error 
-            $status_log_row.result = @($this_result)
-            $status_log_row.report = 1
 
         }
+        else {
+            try {
+                # Attempt to update the group manager
+                Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
+
+                Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+                $this_result = $result_array_row | Select-Object *
+                $this_result.action = "update manager"
+                $this_result.result = "success"
+                $status_log_row.result = @($this_result)
+            }
+            catch {
+                # Catch and handle the error
+                $segment_group_update_error = $_.Exception.Message
+                $flag_segment_group_update_success = 0
+                Global:log -text (" > Manager updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
+                $this_result = $result_array_row | Select-Object *
+                $this_result.action = "update manager"
+                $this_result.result = 'failed:{0}' -F $segment_group_update_error 
+                $status_log_row.result = @($this_result)
+                $status_log_row.report = 1
+
+            }
+        }
+
 
         
     }
@@ -214,7 +227,8 @@ Global:log -text ("End") -Hierarchy "SegmentsGroups"
 Global:log -text ("Start") -Hierarchy "DepartmentGroups" 
 $raw_data_departments_groupby = $raw_user_data | Group-Object company, department | Select-Object @{name = "company"; expression = { ($_.Group[0].company).replace(" ", "_") } }, @{name = "department"; expression = { $_.Group[0].department } } | Sort-Object company
 
-$department_groups_existing = Get-ADGroup -SearchBase ($global:departments_ou) -filter * | Select-Object -ExpandProperty name
+
+$department_groups_existing = Get-ADGroup -SearchBase ($global:departments_ou) -filter * -Properties managedby, name, info | Select-Object name, managedby, info
 
 
 
@@ -228,19 +242,21 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
         $status_log_row = $status_log_row_template | Select-Object * # type, group, exists, action, result, report
         $status_log_row.type = "department"
         $status_log_row.group = $this_department
-        $status_log_row.exists = 0
-        Global:log -text ("existing?") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
-        if ( $department_groups_existing -contains $this_department) {
-            Global:log -text (" > Yes, Updating") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
-            $status_log_row.exists = 1
+        $status_log_row.exists = $false
+        Global:log -text ("? existing...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
+        $department_groups_names = $department_groups_existing | Select-Object -ExpandProperty name
+        
+        if ( $department_groups_names -contains $this_department) {
+            Global:log -text ("...Yes") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
+            $status_log_row.exists = $true
             $status_log_row.action = "Update"
         }
         else {
-            Global:log -text (" ! No") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
+            Global:log -text ("...No") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
             $status_log_row.action = "Create"
         }
 
-        if ( $status_log_row.exists -eq 0) {
+        if ( $status_log_row.exists -eq $false) {
             Global:log -text ("Creating...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
             
 
@@ -274,30 +290,79 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
                 $status_log_row.result = @($this_result)
                 $status_log_row.report = 1
             }
-        }
 
-        if ($status_log_row.exists -eq 0) {
             Global:log -text ("Updating attributes") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
             try {
                 # Attempt to update the group manager
                 Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value }
                 Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
                 $this_result = $result_array_row | Select-Object *
-                $this_result.action = "update manager"
+                $this_result.action = "update attributes"
                 $this_result.result = "success"
-                $status_log_row.result = @($this_result)
+                $status_log_row.result += @($this_result)
             }
             catch {
                 # Catch and handle the error
                 $department_group_update_error = $_.Exception.Message
                 Global:log -text (" > Manager updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
                 $this_result = $result_array_row | Select-Object *
-                $this_result.action = "update manager"
+                $this_result.action = "update attributes"
                 $this_result.result = 'failed:{0}' -F $department_group_update_error 
-                $status_log_row.result = @($this_result)
+                $status_log_row.result += @($this_result)
                 $status_log_row.report = 1
 
             }
+        }
+
+        if ($status_log_row.exists -eq $true) {
+            Global:log -text ("Checking for attribute updates...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
+
+            $current_department = $department_groups_existing | Where-Object { $_.name -eq $status_log_row.group } 
+            
+            if ( $current_department.managedby -ne $global:department_ou_manager -or $current_department.info -ne $global:Config.Configurations.'company groups'.departments_note_attribute_value ) {
+                Global:log -text ("...required") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
+                $this_result.action = "update attributes"
+                
+                try {
+                    # Attempt to update the group manager
+                    Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value }
+                    Global:log -text (" > Manager updated successfully") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type error
+                    $this_result = $result_array_row | Select-Object *
+                    $this_result.action = "update manager"
+                    $this_result.result = "success"
+                    $status_log_row.result = @($this_result)
+                    $status_log_row.report = 1
+                    $status_log_row.result = @($this_result)
+                }
+                catch {
+                    # Catch and handle the error
+                    $department_group_update_error = $_.Exception.Message
+                    Global:log -text (" > Manager updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
+                    $this_result = $result_array_row | Select-Object *
+                    $this_result.action = "update manager"
+                    $this_result.result = 'failed:{0}' -F $department_group_update_error 
+                    $status_log_row.result = @($this_result)
+                    $status_log_row.report = 1
+                    $status_log_row.result = @($this_result)
+                }
+                
+
+            }
+            else {
+                Global:log -text ("...not required") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
+                $this_result = $result_array_row | Select-Object *
+                $this_result.action = "update attributes"
+                $this_result.result = "skipped"
+                $status_log_row.report = 0
+                $status_log_row.result = @($this_result)
+
+            }
+            
+
+            
+            
+
+
 
         }
 

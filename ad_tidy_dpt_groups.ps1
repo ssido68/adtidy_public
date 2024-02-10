@@ -87,41 +87,117 @@ Global:log -text ("Start") -Hierarchy "SegmentsGroups"
 $segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter * | Select-Object -ExpandProperty name
 $segment_groups_required = $raw_data_segments_groupby | Select-Object -ExpandProperty name
 
-$segment_groups_status = @()
+$status_status = @()
 $segment_groups_required | ForEach-Object {
     $this_required_segment = $_
-    $segment_group_status_row = "" | Select-Object group, exists, action, result 
-    $segment_group_status_row.group = $this_required_segment.replace(" ", "_")
-    if ( $segment_groups_existing -contains $segment_group_status_row.group ) {
-        $segment_group_status_row.exists = $true
-        $segment_group_status_row.action = "update"
-        Global:log -text ("Update") -Hierarchy ("SegmentsGroups:{0}" -F $segment_group_status_row.group)
-        Get-ADGroup -Filter ('name -eq "{0}"' -F $segment_group_status_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
+    $status_log_row = "" | Select-Object type, group, exists, action, result, report
+    $status_log_row.report = 0
+    $status_log_row.type = "segment group"
+    $result_array_row = "" | Select-Object action, result
+    $status_log_row.group = $this_required_segment.replace(" ", "_")
+    if ( $segment_groups_existing -contains $status_log_row.group ) {
+        $status_log_row.exists = $true
+        $status_log_row.action = "update"
+        Global:log -text ("Update") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+        try {
+            # Attempt to update the group manager
+            Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
+            $flag_segment_group_update_success = 1
+            Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+            $this_result = $result_array_row | Select-Object *
+            $this_result.action = "update manager"
+            $this_result.result = "success"
+            $status_log_row.result = @($this_result)
+        }
+        catch {
+            # Catch and handle the error
+            $segment_group_update_error = $_.Exception.Message
+            $flag_segment_group_update_success = 0
+            Global:log -text (" > Manager updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
+            $this_result = $result_array_row | Select-Object *
+            $this_result.action = "update manager"
+            $this_result.result = 'failed:{0}' -F $segment_group_update_error 
+            $status_log_row.result = @($this_result)
+            $status_log_row.report = 1
+
+        }
+
+        
     }
     else {
-        $segment_group_status_row.exists = $false
-        $segment_group_status_row.action = "create"
-        Global:log -text ("Create") -Hierarchy ("SegmentsGroups:{0}" -F $segment_group_status_row.group)
+        $status_log_row.exists = $false
+        $status_log_row.action = "create"
+        Global:log -text ("Create") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
         #region creating new segment groups
         # Define an array with parameters
         $groupParams = @{
-            "Name" = $segment_group_status_row.group
+            "Name" = $status_log_row.group
             "Path" = $global:segments_ou
         }
+        try {
+            # attempt to create the missing group
+           
+            # Create a new Active Directory group using the array of parameters
+            Global:log -text (" > Group created successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+            New-ADGroup @groupParams -GroupScope Universal -GroupCategory Security 
+            Global:log -text (" delay...") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type warning
 
-        # Create a new Active Directory group using the array of parameters
-        New-ADGroup @groupParams -GroupScope Universal -GroupCategory Security 
-        Get-ADGroup -Filter ('name -eq "{0}"' -F $segment_group_status_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
+            $this_result = $result_array_row | Select-Object *
+            $this_result.action = "create group"
+            $this_result.result = 'success' 
+            $status_log_row.result = @($this_result)
+            $status_log_row.report = 1
+            
+        }
+        catch {
+            # Catch and handle the error
+            $segment_group_update_error = $_.Exception.Message
+            $flag_segment_group_update_success = 0
+            Global:log -text (" > group created/updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
+            $this_result = $result_array_row | Select-Object *
+            $this_result.action = "create group"
+            $this_result.result = 'failed:{0}' -F $segment_group_update_error 
+            $status_log_row.result = @($this_result)
+            $status_log_row.report = 1
+        }
+
+        Start-Sleep -Seconds 2
+
+        try {
+            Global:log -text (" > updating manager...") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+            Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
+            $flag_segment_group_update_success = 1
+            Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+            $this_result = $result_array_row | Select-Object *
+            $this_result.action = "update manager"
+            $this_result.result = 'success' 
+            $status_log_row.result += $this_result
+            $status_log_row.report = 1
+
+        }
+        catch {
+            # Catch and handle the error
+            $segment_group_update_error = $_.Exception.Message
+            $flag_segment_group_update_success = 0
+            Global:log -text (" > group created/updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
+            $this_result = $result_array_row | Select-Object *
+            $this_result.action = "update manager"
+            $this_result.result = 'failed:{0}' -F $segment_group_update_error 
+            $status_log_row.result += $this_result
+            $status_log_row.report = 1
+        }
+
+
         #endregion
 
     }
-    $segment_groups_status += $segment_group_status_row
+    $status_status += $status_log_row
 }
 Global:log -text ("End") -Hierarchy "SegmentsGroups" 
 
 #endregion
 
-
+$status_status | Where-Object { $_.report -eq 1 }
 
 
 

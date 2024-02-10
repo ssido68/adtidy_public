@@ -83,14 +83,42 @@ $raw_data_segments_groupby = $raw_user_data | Group-Object company
 
 
 #region Segment Groups
-$segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter *
-$segment_groups_required = $raw_data_segments_groupby | Select-Object Name
+Global:log -text ("Start") -Hierarchy "SegmentsGroups" 
+$segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter * | Select-Object -ExpandProperty name
+$segment_groups_required = $raw_data_segments_groupby | Select-Object -ExpandProperty name
 
 $segment_groups_status = @()
 $segment_groups_required | ForEach-Object {
-    $segment_group_status_row = "" | Select-Object group, exists, action
+    $this_required_segment = $_
+    $segment_group_status_row = "" | Select-Object group, exists, action, result 
+    $segment_group_status_row.group = $this_required_segment.replace(" ", "_")
+    if ( $segment_groups_existing -contains $segment_group_status_row.group ) {
+        $segment_group_status_row.exists = $true
+        $segment_group_status_row.action = "update"
+        Global:log -text ("Update") -Hierarchy ("SegmentsGroups:{0}" -F $segment_group_status_row.group)
+        Get-ADGroup -Filter ('name -eq "{0}"' -F $segment_group_status_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
+    }
+    else {
+        $segment_group_status_row.exists = $false
+        $segment_group_status_row.action = "create"
+        Global:log -text ("Create") -Hierarchy ("SegmentsGroups:{0}" -F $segment_group_status_row.group)
+        #region creating new segment groups
+        # Define an array with parameters
+        $groupParams = @{
+            "Name" = $segment_group_status_row.group
+            "Path" = $global:segments_ou
+        }
 
+        # Create a new Active Directory group using the array of parameters
+        New-ADGroup @groupParams -GroupScope Universal -GroupCategory Security 
+        Get-ADGroup -Filter ('name -eq "{0}"' -F $segment_group_status_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
+        #endregion
+
+    }
+    $segment_groups_status += $segment_group_status_row
 }
+Global:log -text ("End") -Hierarchy "SegmentsGroups" 
+
 #endregion
 
 

@@ -225,13 +225,8 @@ Global:log -text ("End") -Hierarchy "SegmentsGroups"
 #region Department Groups
 # group by, splitting 'name' instead of the comma separated value of multiple group-object columns
 Global:log -text ("Start") -Hierarchy "DepartmentGroups" 
-$raw_data_departments_groupby = $raw_user_data | Group-Object company, department | Select-Object @{name = "company"; expression = { ($_.Group[0].company).replace(" ", "_") } }, @{name = "department"; expression = { $_.Group[0].department } } | Sort-Object company
-
-
+$raw_data_departments_groupby = $raw_user_data | Group-Object company, department | Select-Object @{name = "company"; expression = { ($_.Group[0].company).replace(" ", "_") } }, @{name = "department"; expression = { $_.Group[0].department } }, group | Sort-Object company
 $department_groups_existing = Get-ADGroup -SearchBase ($global:departments_ou) -filter * -Properties managedby, name, info | Select-Object name, managedby, info
-
-
-
 $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | ForEach-Object { #loop through company (segments) from the groupby array
     $this_segment = $_
     Global:log -text ("Start") -Hierarchy ("DepartmentGroups:{0}" -F $this_segment)
@@ -365,6 +360,42 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
 
 
         }
+
+        #region check memberships
+        Global:log -text ("Checking memberships") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
+        $raw_data_departments_groupby | Select-Object -first 1 | ForEach-Object {
+            $this_group = $_
+            $current_members = Get-ADGroup  $status_log_row.group -Properties member | Select-Object -ExpandProperty member
+            Global:log -text (" > current : {0}" -f $current_members.count) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
+            Global:log -text (" > required : {0}" -f ($this_group.Group).count ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
+
+            $this_group_members_status = @()
+            $this_group.Group | ForEach-Object {
+                $this_group_members_row = "" | Select-Object distinguishedname, status
+                $this_group_members_row.distinguishedname = $_.distinguishedname
+                if ( $current_members -contains $this_group_members_row.distinguishedname ) {
+                    $this_group_members_row.status = "present"
+                }
+                else {
+                    $this_group_members_row.status = "missing"
+                }
+                $this_group_members_status += $this_group_members_row
+            }
+
+            if ( ( $this_group_members_status | Where-Object { $_.status -eq "missing" }).count -ne 0 ) {
+                Global:log -text (" > missing member(s)..." ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
+
+                #region adding missing members
+                
+                #endregion
+
+            }
+            else {
+                Global:log -text (" > no missing members" ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
+            }
+        }
+
+        #endregion
 
 
         Global:log -text ("End") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )

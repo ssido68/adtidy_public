@@ -1,0 +1,30 @@
+﻿Description,version,filter definition,target objects,action,reporting,reporting fields,logging
+employee outdated,20230925,"[
+    {
+        ""Name"": ""lastlogon timestamp calculation"",
+        ""Type"": ""PowerShell"",
+        ""Sequence"": 0,
+        ""OutputName"": ""LastlogonTimestamp"",
+        ""Filter"": {
+            ""script"": ""return (Get-Date(Get-Date).AddDays(-700)).ToFileTime()""
+        }
+    },
+    {
+        ""Name"": ""ldap composition"",
+        ""Type"": ""LDAP"",
+        ""Sequence"": 1,
+        ""OutputName"": ""ldap"",
+        ""Filter"": {
+            ""query"": ""(!(userAccountControl:1.2.840.113556.1.4.803:=2))(lastLogonTimestamp<=132798094679815699)"",
+            ""Parameters"": {
+                ""timestamp"": ""LastlogonTimestamp""
+            }
+        }
+    }
+]",user,"{
+        ""Name"": ""disable through AttributeAction"",
+        ""Type"": ""AttributeAction"",
+        ""Sequence"": 3,
+        ""Action"": ""disable""
+        
+    }",1,"samaccountname,displayname,lastlogontimestamp,company,useraccountcontrol,distinguishedname,pwdLastSet",

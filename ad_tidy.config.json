@@ -1,0 +1,9 @@
+﻿{
+  "Configurations": {
+    "company groups" : {
+      "segments_groups_ou" : "OU=segments,OU=company,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
+      "departments_groups_ou" : "OU=segments,OU=company,OU=groups,OU=primeo-energie,DC=pe,DC=ch"
+    }
+
+  }
+}

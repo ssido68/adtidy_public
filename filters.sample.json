@@ -1,0 +1,57 @@
+﻿[
+    {
+        "Name": "lastlogon timestamp calculation",
+        "Type": "PowerShell",
+        "Sequence": 0,
+        "OutputName": "LastlogonTimestamp",
+        "Filter": {
+            "script": "return (Get-Date(Get-Date).AddDays(-700)).ToFileTime()"
+        }
+    },
+    {
+        "Name": "ldap composition",
+        "Type": "LDAP",
+        "Sequence": 1,
+        "OutputName": "ldap",
+        "Filter": {
+            "query": "(!(userAccountControl:1.2.840.113556.1.4.803:=2))(lastLogonTimestamp<=132798094679815699)",
+            "Parameters": {
+                "timestamp": "LastlogonTimestamp"
+            }
+        }
+    }
+]
+
+
+[
+    {
+        "Name": "hashtags_calculation",
+        "Type": "PowerShell",
+        "Sequence": 0,
+        "OutputName": "hashtags",
+        "Filter": {
+            "Script": "return 'sample data'"
+        }
+    },
+    {
+        "Name": "disable through UAC value",
+        "Type": "SetAttribute",
+        "Sequence": 1,
+        "AttributeName": "userAccountControl",
+        "AttributeDirectValue": "514"
+    },
+    {
+        "Name": "adtidy action recorded",
+        "Type": "AppendToAttribute",
+        "Sequence": 2,
+        "AttributeName": "info",
+        "AttributeFromVariableValue": "hashtags"
+    },
+    {
+        "Name": "disable through AttributeAction",
+        "Type": "AttributeAction",
+        "Sequence": 3,
+        "Action": "disable"
+
+    }
+]

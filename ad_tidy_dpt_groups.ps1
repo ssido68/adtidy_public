@@ -74,23 +74,29 @@ $global:departments_ou = $global:Config.Configurations.'company groups'.departme
 #region get target OU attributes, looking for manager information
 $global:segments_ou_adobject = Get-ADOrganizationalUnit -Identity $global:segments_ou
 $global:segments_ou_manager = $global:segments_ou_adobject.ManagedBy
+$global:group_security = 'Security'
+$global:group_scope = 'Universal'
 #endregion
 
 #region get ad user that have employeeid
 $raw_user_data = Get-ADUser -LDAPFilter "(employeeID=*)" -Properties employeeid, department, company, distinguishedname
 $raw_data_segments_groupby = $raw_user_data | Group-Object company
 #endregion
+#region status row array template
+$status_log_row_template = "" | Select-Object type, group, exists, action, result, report
 
+#endregion
 
 #region Segment Groups
 Global:log -text ("Start") -Hierarchy "SegmentsGroups" 
 $segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter * | Select-Object -ExpandProperty name
 $segment_groups_required = $raw_data_segments_groupby | Select-Object -ExpandProperty name
 
-$status_status = @()
+$whole_status = @()
 $segment_groups_required | ForEach-Object {
-    $this_required_segment = $_
-    $status_log_row = "" | Select-Object type, group, exists, action, result, report
+    $this_required_segment = ( "{1}{0}" -F $_, $global:Config.Configurations.'company groups'.segments_group_name_prefix )
+
+    $status_log_row = $status_log_row_template | Select-Object *
     $status_log_row.report = 0
     $status_log_row.type = "segment group"
     $result_array_row = "" | Select-Object action, result
@@ -139,7 +145,7 @@ $segment_groups_required | ForEach-Object {
            
             # Create a new Active Directory group using the array of parameters
             Global:log -text (" > Group created successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
-            New-ADGroup @groupParams -GroupScope Universal -GroupCategory Security 
+            New-ADGroup @groupParams -GroupScope $global:group_scope -GroupCategory $global:group_security
             Global:log -text (" delay...") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type warning
 
             $this_result = $result_array_row | Select-Object *
@@ -161,7 +167,7 @@ $segment_groups_required | ForEach-Object {
             $status_log_row.report = 1
         }
 
-        Start-Sleep -Seconds 2
+        #Start-Sleep -Seconds 2
 
         try {
             Global:log -text (" > updating manager...") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
@@ -191,13 +197,11 @@ $segment_groups_required | ForEach-Object {
         #endregion
 
     }
-    $status_status += $status_log_row
+    $whole_status += $status_log_row
 }
 Global:log -text ("End") -Hierarchy "SegmentsGroups" 
 
 #endregion
-
-$status_status | Where-Object { $_.report -eq 1 }
 
 
 #region Department Groups
@@ -213,18 +217,71 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
     $this_segment = $_
     Global:log -text ("Start") -Hierarchy ("DepartmentGroups:{0}" -F $this_segment)
     $raw_data_departments_groupby | Where-Object { $_.company -eq $this_segment } | Select-Object -ExpandProperty department | ForEach-Object { # all dpt in this segment
-        $this_department = $_
-        Global:log -text ("Start") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
+        $this_department = ( "{1}{0}" -F $_, $global:Config.Configurations.'company groups'.departments_group_name_prefix )
 
+        Global:log -text ("Start") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
+        $status_log_row = $status_log_row_template | Select-Object * # type, group, exists, action, result, report
+        $status_log_row.type = "department"
+        $status_log_row.group = $this_department
+        $status_log_row.exists = 0
         Global:log -text ("existing?") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
         if ( $department_groups_existing -contains $this_department) {
             Global:log -text (" > Yes, Updating") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
+            $status_log_row.exists = 1
+            $status_log_row.action = "Update"
         }
         else {
-            Global:log -text (" ! No, Creating") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
+            Global:log -text (" ! No") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
+            $status_log_row.action = "Create"
         }
 
+        if ( $status_log_row.exists -eq 0) {
+            Global:log -text ("Creating...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
+            
+
+            $groupParams = @{
+                "Name" = $this_department
+                "Path" = $global:departments_ou
+            }
+            try {
+                # attempt to create the missing group
+           
+                # Create a new Active Directory group using the array of parameters
+                Global:log -text (" > Done") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
+                New-ADGroup @groupParams -GroupScope $global:group_scope -GroupCategory $global:group_security
+                Global:log -text (" delay...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
+                #Start-Sleep -Seconds 1
+                $this_result = $result_array_row | Select-Object *
+                $this_result.action = "create group"
+                $this_result.result = 'success' 
+                $status_log_row.result = @($this_result)
+                $status_log_row.report = 1
+            
+            }
+            catch {
+                # Catch and handle the error
+                $segment_group_update_error = $_.Exception.Message
+                $flag_segment_group_update_success = 0
+                Global:log -text (" > group created/updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type error
+                $this_result = $result_array_row | Select-Object *
+                $this_result.action = "create group"
+                $this_result.result = 'failed:{0}' -F $segment_group_update_error 
+                $status_log_row.result = @($this_result)
+                $status_log_row.report = 1
+            }
+        }
+
+        if ($status_log_row.exists -eq 1) {
+            <#
+             $global:Config 
+            -Replace @{info = $group_attribute_note }
+            #>
+        }
+
+
         Global:log -text ("End") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
+
+        $whole_status += $status_log_row
     }
     Global:log -text ("End") -Hierarchy ("DepartmentGroups:{0}" -F $this_segment)
 }

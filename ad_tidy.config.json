@@ -1,9 +1,11 @@
 ﻿{
   "Configurations": {
-    "company groups" : {
-      "segments_groups_ou" : "OU=segments,OU=company,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
-      "departments_groups_ou" : "OU=segments,OU=company,OU=groups,OU=primeo-energie,DC=pe,DC=ch"
+    "company groups": {
+      "segments_groups_ou": "OU=segments,OU=company,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
+      "segments_group_name_prefix": "",
+      "departments_groups_ou": "OU=departments,OU=company,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
+      "departments_note_attribute_value": "#ADTidy #Auto",
+      "departments_group_name_prefix": ""
     }
-
   }
 }

@@ -87,61 +87,71 @@ $global:group_scope = 'Universal'
 $raw_user_data = Get-ADUser -LDAPFilter "(employeeID=*)" -Properties employeeid, department, company, distinguishedname
 $raw_data_segments_groupby = $raw_user_data | Group-Object company
 #endregion
-#region status row array template
-$status_log_row_template = "" | Select-Object type, group, exists, action, result, report
 
+#region status row array templates
+$status_log_row_template = "" | Select-Object type, group, exists, action, result, report
+$status_log_row_template = "" | Select-Object group_type, group_name, group_distinguishedname, flag_exists, flag_membership_changed, flag_reporting, action_logs, action_type
+$status_log_action_log_row_template = "" | Select-Object timestamp, type, target, result
 #endregion
 
 #region Segment Groups
 Global:log -text ("Start") -Hierarchy "SegmentsGroups" 
-$segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter * -Properties managedby, name | Select-Object name, managedby
+$segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter * -Properties managedby, name, distinguishedname | Select-Object name, managedby, distinguishedname
 $segment_groups_required = $raw_data_segments_groupby | Select-Object -ExpandProperty name
 
 $whole_status = @()
 $segment_groups_required | ForEach-Object {
     $this_required_segment = ( "{1}{0}" -F $_, $global:Config.Configurations.'company groups'.segments_group_name_prefix )
 
-    $status_log_row = $status_log_row_template | Select-Object *
-    $status_log_row.report = 0
-    $status_log_row.type = "segment group"
-    $result_array_row = "" | Select-Object action, result
-    $status_log_row.group = $this_required_segment.replace(" ", "_")
+    $status_log_row = $status_log_row_template | Select-Object * # group_type, group_name, group_distinguishedname, flag_exists, flag_membership_changed, flag_reporting, action_logs, action_type
+    $status_log_row.flag_reporting = $false
+    $status_log_row.group_type = "segment"
+    $status_log_row.group_name = $this_required_segment.replace(" ", "_")
+
     $segment_groups_names = $segment_groups_existing | Select-Object -ExpandProperty name
-    if ( $segment_groups_names -contains $status_log_row.group ) {
-        $status_log_row.exists = $true
-        $status_log_row.action = "update"
-        Global:log -text ("Update?") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
-        $current_manager = $segment_groups_existing | Where-Object { $_.name -eq $status_log_row.group } | Select-Object -ExpandProperty managedby
+    if ( $segment_groups_names -contains $status_log_row.group_name ) {
+        $status_log_row.flag_exists = $true
+        $status_log_row.action_type = "-"
+        Global:log -text ("Update?") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name)
+        $current_manager = $segment_groups_existing | Where-Object { $_.name -eq $status_log_row.group_name } | Select-Object -ExpandProperty managedby
+        $status_log_row.group_distinguishedname = $segment_groups_existing | Where-Object { $_.name -eq $status_log_row.group_name } | Select-Object -ExpandProperty distinguishedname
         if ( $current_manager -eq $global:segments_ou_manager ) {
             Global:log -text (" > not required. manager didn't change") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
-            $this_result = $result_array_row | Select-Object *
-            $this_result.action = "update manager"
-            $this_result.result = "skipped"
-            $status_log_row.result = @($this_result)
+            $status_log_row.action_type = "-"
+            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+            $log_record.timestamp = get-date
+            $log_record.type = "update manager"
+            $log_record.result = "skipped"
+            $log_record.target = $current_manager
+            $status_log_row.action_logs = @($log_record)
 
         }
         else {
             try {
                 # Attempt to update the group manager
-                Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
+                Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group_name) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
 
-                Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
-                $this_result = $result_array_row | Select-Object *
-                $this_result.action = "update manager"
-                $this_result.result = "success"
-                $status_log_row.result = @($this_result)
+                Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name)
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                $log_record.timestamp = get-date
+                $log_record.type = "update manager"
+                $log_record.result = "success"
+                $log_record.target = $current_manager
+                $status_log_row.action_logs = @($log_record)
+                $status_log_row.flag_reporting = $true
             }
             catch {
                 # Catch and handle the error
                 $segment_group_update_error = $_.Exception.Message
                 $flag_segment_group_update_success = 0
-                Global:log -text (" > Manager updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
-                $this_result = $result_array_row | Select-Object *
-                $this_result.action = "update manager"
-                $this_result.result = 'failed:{0}' -F $segment_group_update_error 
-                $status_log_row.result = @($this_result)
-                $status_log_row.report = 1
-
+                Global:log -text (" > Manager updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name) -type error
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                $log_record.timestamp = get-date
+                $log_record.type = "update manager"
+                $log_record.result = 'failed:{0}' -F $segment_group_update_error 
+                $log_record.target = $current_manager
+                $status_log_row.action_logs = @($log_record)
+                $status_log_row.flag_reporting = $true
             }
         }
 
@@ -149,66 +159,78 @@ $segment_groups_required | ForEach-Object {
         
     }
     else {
-        $status_log_row.exists = $false
-        $status_log_row.action = "create"
-        Global:log -text ("Create") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+        $status_log_row.flag_exists = $false
+        $status_log_row.action_type = "Create"
+        Global:log -text ("Create") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name)
         #region creating new segment groups
         # Define an array with parameters
         $groupParams = @{
-            "Name" = $status_log_row.group
+            "Name" = $status_log_row.group_name
             "Path" = $global:segments_ou
         }
         try {
             # attempt to create the missing group
            
             # Create a new Active Directory group using the array of parameters
-            Global:log -text (" > Group created successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+            Global:log -text (" > Group created successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name)
             New-ADGroup @groupParams -GroupScope $global:group_scope -GroupCategory $global:group_security
-            Global:log -text (" delay...") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type warning
+            Global:log -text (" delay...") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name) -type warning
 
-            $this_result = $result_array_row | Select-Object *
-            $this_result.action = "create group"
-            $this_result.result = 'success' 
-            $status_log_row.result = @($this_result)
-            $status_log_row.report = 1
-            
+            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+            $log_record.timestamp = get-date
+            $log_record.type = "create group"
+            $log_record.result = 'success'
+            $log_record.target = $global:segments_ou
+            $status_log_row.action_logs = @($log_record)
+            $status_log_row.flag_reporting = $true
+     
         }
         catch {
             # Catch and handle the error
             $segment_group_update_error = $_.Exception.Message
             $flag_segment_group_update_success = 0
-            Global:log -text (" > group created/updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
-            $this_result = $result_array_row | Select-Object *
-            $this_result.action = "create group"
-            $this_result.result = 'failed:{0}' -F $segment_group_update_error 
-            $status_log_row.result = @($this_result)
-            $status_log_row.report = 1
+            Global:log -text (" > group created/updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name) -type error
+            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+            $log_record.timestamp = get-date
+            $log_record.type = "create group"
+            $log_record.result = 'failed:{0}' -F $segment_group_update_error 
+            $log_record.target = $global:segments_ou
+            $status_log_row.action_logs = @($log_record)
+            $status_log_row.flag_reporting = $true
+
         }
 
         #Start-Sleep -Seconds 2
 
         try {
-            Global:log -text (" > updating manager...") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
-            Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
+            Global:log -text (" > updating manager...") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name)
+            $status_log_row.group_distinguishedname = Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group_name) -Properties distinguishedname | Select-Object -ExpandProperty distinguishedname
+            Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group_name) | Set-ADGroup -Replace @{"managedby" = $global:segments_ou_manager }
             $flag_segment_group_update_success = 1
-            Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
-            $this_result = $result_array_row | Select-Object *
-            $this_result.action = "update manager"
-            $this_result.result = 'success' 
-            $status_log_row.result += $this_result
-            $status_log_row.report = 1
+            Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name)
+            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+            $log_record.timestamp = get-date
+            $log_record.type = "update manager"
+            $log_record.result = 'success' 
+            $log_record.target = $global:segments_ou_manager
+            $status_log_row.action_logs += $log_record
+            $status_log_row.flag_reporting = $true
+
 
         }
         catch {
             # Catch and handle the error
             $segment_group_update_error = $_.Exception.Message
             $flag_segment_group_update_success = 0
-            Global:log -text (" > group created/updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
-            $this_result = $result_array_row | Select-Object *
-            $this_result.action = "update manager"
-            $this_result.result = 'failed:{0}' -F $segment_group_update_error 
-            $status_log_row.result += $this_result
-            $status_log_row.report = 1
+            Global:log -text (" > group created/updated failed:{0}" -F $segment_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name) -type error
+            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+            $log_record.timestamp = get-date
+            $log_record.type = "update manager"
+            $log_record.result = 'failed:{0}' -F $segment_group_update_error 
+            $log_record.target = $global:segments_ou_manager
+            $status_log_row.action_logs += $log_record
+            $status_log_row.flag_reporting = $true
+
         }
 
 
@@ -218,7 +240,8 @@ $segment_groups_required | ForEach-Object {
     $whole_status += $status_log_row
 }
 Global:log -text ("End") -Hierarchy "SegmentsGroups" 
-
+$whole_status | Where-Object { $_.flag_reporting -eq $true }
+exit
 #endregion
 
 

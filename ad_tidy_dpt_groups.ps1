@@ -393,11 +393,15 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
             $current_members | ForEach-Object {
                 $this_current_group_member = $_
                 if ( ($this_group.group | Select-Object -ExpandProperty distinguishedname) -notcontains $this_current_group_member) {
+                    $this_group_members_row = "" | Select-Object distinguishedname, status, report
+                    $this_group_members_row.distinguishedname = $this_current_group_member
                     $this_group_members_row.status = "delete"
                     $this_group_members_row.report = 1
                     $this_group_members_status += $this_group_members_row
                 }
             }
+
+
             if ( ($this_group_members_status | Where-Object { $_.status -eq "delete" }).count -ne 0 ) {
                 Global:log -text (" > members to delete : {0}" -f ($this_group_members_status | Where-Object { $_.status -eq "delete" }).count ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
             }
@@ -405,6 +409,7 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
 
             #region proceed with detected membership changes
             if ( ( $this_group_members_status | Where-Object { $_.report -eq 1 } ).count -ne 0 ) {
+                
                 Global:log -text ("proceeding with {0} membership changes" -F ( $this_group_members_status | Where-Object { $_.report -eq 1 } ).count ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
                 
                 #region membership change loop 
@@ -412,14 +417,31 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
                     $this_membership_change_record = $_
                     $this_result = $result_array_row | Select-Object *
                     $this_result.action = "membership updates"
+                    $status_log_row.report = 1
+
                     switch ($this_membership_change_record.status) {
                         "delete" {
-                            TRY {}
-                            CATCH {}
+                            try {
+                                # Attempt to remove membership
+                                
+                                Get-ADGroup -Identity $this_ad_group.DistinguishedName | Remove-ADGroupMember -Members $this_membership_change_record.distinguishedname -Confirm:$false
+                                Global:log -text (" - Removed membership of '{0}'" -F $this_membership_change_record.distinguishedname) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
+                                $this_dn_array = "" | Select-Object distinguishedname, result
+                                $this_dn_array.distinguishedname = $this_membership_change_record.distinguishedname
+                                $this_dn_array.result = "success"
+                                $this_result.result += $this_dn_array
+                            }
+                            catch {
+                                # Catch and handle the error
+                                $error_details = $_.Exception.Message
+                                Global:log -text (" ! Failed to removed membership of '{0}':{1}" -F $this_membership_change_record.distinguishedname, $error_details) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type error
+                                $this_dn_array = "" | Select-Object distinguishedname, result
+                                $this_dn_array.distinguishedname = $this_membership_change_record.distinguishedname
+                                $this_dn_array.result = "failed"
+                                $this_result.result += $error_details
+                            }
                         }
-
                     }
-
                     $status_log_row.result += @($this_result)
 
 

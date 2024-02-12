@@ -89,7 +89,6 @@ $raw_data_segments_groupby = $raw_user_data | Group-Object company
 #endregion
 
 #region status row array templates
-$status_log_row_template = "" | Select-Object type, group, exists, action, result, report
 $status_log_row_template = "" | Select-Object group_type, group_name, group_distinguishedname, flag_exists, flag_membership_changed, flag_reporting, action_logs, action_type
 $status_log_action_log_row_template = "" | Select-Object timestamp, type, target, result
 #endregion
@@ -200,8 +199,6 @@ $segment_groups_required | ForEach-Object {
 
         }
 
-        #Start-Sleep -Seconds 2
-
         try {
             Global:log -text (" > updating manager...") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name)
             $status_log_row.group_distinguishedname = Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group_name) -Properties distinguishedname | Select-Object -ExpandProperty distinguishedname
@@ -232,8 +229,6 @@ $segment_groups_required | ForEach-Object {
             $status_log_row.flag_reporting = $true
 
         }
-
-
         #endregion
 
     }
@@ -241,7 +236,7 @@ $segment_groups_required | ForEach-Object {
 }
 Global:log -text ("End") -Hierarchy "SegmentsGroups" 
 $whole_status | Where-Object { $_.flag_reporting -eq $true }
-exit
+
 #endregion
 
 
@@ -249,7 +244,7 @@ exit
 # group by, splitting 'name' instead of the comma separated value of multiple group-object columns
 Global:log -text ("Start") -Hierarchy "DepartmentGroups" 
 $raw_data_departments_groupby = $raw_user_data | Group-Object company, department | Select-Object @{name = "company"; expression = { ($_.Group[0].company).replace(" ", "_") } }, @{name = "department"; expression = { $_.Group[0].department } }, group | Sort-Object company
-$department_groups_existing = Get-ADGroup -SearchBase ($global:departments_ou) -filter * -Properties managedby, name, info | Select-Object name, managedby, info
+$department_groups_existing = Get-ADGroup -SearchBase ($global:departments_ou) -filter * -Properties managedby, name, info, distinguishedname | Select-Object name, managedby, info, distinguishedname
 $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | ForEach-Object { #loop through company (segments) from the groupby array
     $this_segment = $_
     Global:log -text ("Start") -Hierarchy ("DepartmentGroups:{0}" -F $this_segment)
@@ -257,24 +252,28 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
         $this_department = ( "{1}{0}" -F $_, $global:Config.Configurations.'company groups'.departments_group_name_prefix )
 
         Global:log -text ("Start") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
-        $status_log_row = $status_log_row_template | Select-Object * # type, group, exists, action, result, report
-        $status_log_row.type = "department"
-        $status_log_row.group = $this_department
-        $status_log_row.exists = $false
+        $status_log_row = $status_log_row_template | Select-Object * # group_type, group_name, group_distinguishedname, flag_exists, flag_membership_changed, flag_reporting, action_logs, action_type
+        $status_log_row.flag_reporting = $false
+        $status_log_row.flag_exists = $false
+        $status_log_row.group_type = "department"
+        $status_log_row.group_name = $this_department
+        
+
         Global:log -text ("? existing...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
         $department_groups_names = $department_groups_existing | Select-Object -ExpandProperty name
         
         if ( $department_groups_names -contains $this_department) {
             Global:log -text ("...Yes") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
-            $status_log_row.exists = $true
-            $status_log_row.action = "Update"
+            $status_log_row.flag_exists = $true
+            $status_log_row.action_type = "Update"
+            $status_log_row.group_distinguishedname = $department_groups_existing | Where-Object { $_.name -eq $this_department } | Select-Object -ExpandProperty distinguishedname
         }
         else {
             Global:log -text ("...No") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
-            $status_log_row.action = "Create"
+            $status_log_row.action_type = "Create"
         }
 
-        if ( $status_log_row.exists -eq $false) {
+        if ( $status_log_row.flag_exists -eq $false) {
             Global:log -text ("Creating...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
             
 
@@ -290,11 +289,13 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
                 New-ADGroup @groupParams -GroupScope $global:group_scope -GroupCategory $global:group_security
                 Global:log -text (" delay...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
                 #Start-Sleep -Seconds 1
-                $this_result = $result_array_row | Select-Object *
-                $this_result.action = "create group"
-                $this_result.result = 'success' 
-                $status_log_row.result = @($this_result)
-                $status_log_row.report = 1
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                $log_record.timestamp = get-date
+                $log_record.type = "create group"
+                $log_record.result = 'success'
+                $log_record.target = $global:departments_ou
+                $status_log_row.action_logs = @($log_record)
+                $status_log_row.flag_reporting = $true
             
             }
             catch {
@@ -302,93 +303,95 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
                 $error_details = $_.Exception.Message
                 $flag_segment_group_update_success = 0
                 Global:log -text (" > group created/updated failed:{0}" -F $error_details) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type error
-                $this_result = $result_array_row | Select-Object *
-                $this_result.action = "create group"
-                $this_result.result = 'failed:{0}' -F $error_details 
-                $status_log_row.result = @($this_result)
-                $status_log_row.report = 1
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                $log_record.timestamp = get-date
+                $log_record.type = "create group"
+                $log_record.result = 'failed:{0}' -F $error_details 
+                $log_record.target = $global:departments_ou
+                $status_log_row.action_logs = @($log_record)
+                $status_log_row.flag_reporting = $true
+
             }
 
             Global:log -text ("Updating attributes") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
             try {
                 # Attempt to update the group manager
                 Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value }
-                Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
-                $this_result = $result_array_row | Select-Object *
-                $this_result.action = "update attributes"
-                $this_result.result = "success"
-                $status_log_row.result += @($this_result)
+                Global:log -text (" > Manager updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name)
+
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                $log_record.timestamp = get-date
+                $log_record.type = "update attributes"
+                $log_record.result = "success"
+                $log_record.target = @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value } | ConvertTo-Json
+                $status_log_row.action_logs = @($log_record)
+                $status_log_row.flag_reporting = $true
+
             }
             catch {
                 # Catch and handle the error
                 $error_details = $_.Exception.Message
-                Global:log -text (" > Manager updated failed:{0}" -F $error_details) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
-                $this_result = $result_array_row | Select-Object *
-                $this_result.action = "update attributes"
-                $this_result.result = 'failed:{0}' -F $error_details 
-                $status_log_row.result += @($this_result)
-                $status_log_row.report = 1
-
+                Global:log -text (" > Manager updated failed:{0}" -F $error_details) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name) -type error
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                $log_record.timestamp = get-date
+                $log_record.type = "update attributes"
+                $log_record.result = 'failed:{0}' -F $error_details 
+                $log_record.target = @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value } | ConvertTo-Json
+                $status_log_row.action_logs += $log_record
+                $status_log_row.flag_reporting = $true
             }
         }
 
-        if ($status_log_row.exists -eq $true) {
+        if ($status_log_row.flag_exists -eq $true) {
             Global:log -text ("Checking for attribute updates...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
 
-            $current_department = $department_groups_existing | Where-Object { $_.name -eq $status_log_row.group } 
+            $current_department = $department_groups_existing | Where-Object { $_.name -eq $status_log_row.group_name } 
             
             if ( $current_department.managedby -ne $global:department_ou_manager -or $current_department.info -ne $global:Config.Configurations.'company groups'.departments_note_attribute_value ) {
                 Global:log -text ("...required") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
-                $this_result.action = "update attributes"
                 
                 try {
                     # Attempt to update the group manager
-                    Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group) | Set-ADGroup -Replace @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value }
+                    Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group_name) | Set-ADGroup -Replace @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value }
                     Global:log -text (" > Manager updated successfully") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type error
-                    $this_result = $result_array_row | Select-Object *
-                    $this_result.action = "update manager"
-                    $this_result.result = "success"
-                    $status_log_row.result = @($this_result)
-                    $status_log_row.report = 1
-                    $status_log_row.result = @($this_result)
+                    $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                    $log_record.timestamp = get-date
+                    $log_record.type = "update attributes"
+                    $log_record.result = "success"
+                    $log_record.target = @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value } | ConvertTo-Json
+                    $status_log_row.action_logs = @($log_record)
+                    $status_log_row.flag_reporting = $true
                 }
                 catch {
                     # Catch and handle the error
                     $department_group_update_error = $_.Exception.Message
                     Global:log -text (" > Manager updated failed:{0}" -F $department_group_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group) -type error
-                    $this_result = $result_array_row | Select-Object *
-                    $this_result.action = "update manager"
-                    $this_result.result = 'failed:{0}' -F $department_group_update_error 
-                    $status_log_row.result = @($this_result)
-                    $status_log_row.report = 1
-                    $status_log_row.result = @($this_result)
+                    $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                    $log_record.timestamp = get-date
+                    $log_record.type = "update attributes"
+                    $log_record.result = 'failed:{0}' -F $department_group_update_error 
+                    $log_record.target = @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value } | ConvertTo-Json
+                    $status_log_row.action_logs = @($log_record)
+                    $status_log_row.flag_reporting = $true
                 }
-                
-
             }
             else {
                 Global:log -text ("...not required") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
-                $this_result = $result_array_row | Select-Object *
-                $this_result.action = "update attributes"
-                $this_result.result = "skipped"
-                $status_log_row.report = 0
-                $status_log_row.result = @($this_result)
-
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                $log_record.timestamp = get-date
+                $log_record.type = "update attributes"
+                $log_record.result = "skipped"
+                $log_record.target = @{"managedby" = $global:department_ou_manager; "info" = $global:Config.Configurations.'company groups'.departments_note_attribute_value } | ConvertTo-Json
+                $status_log_row.action_logs = @($log_record)
+                $status_log_row.flag_reporting = $false
             }
-            
-
-            
-            
-
-
-
         }
 
         #region check memberships
         Global:log -text ("Checking memberships") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
         $raw_data_departments_groupby | Select-Object -first 1 | ForEach-Object {
             $this_group = $_
-            $this_ad_group = Get-ADGroup  $status_log_row.group -Properties member, distinguishedname
+            $this_ad_group = Get-ADGroup  $status_log_row.group_name -Properties member, distinguishedname
             $current_members = $this_ad_group | Select-Object -ExpandProperty member
             $this_ad_group_distinguishedname = $this_ad_group.distinguishedname
             Global:log -text (" > current : {0}" -f $current_members.count) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
@@ -430,88 +433,90 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
             }
             #endregion
 
-            #region proceed with detected membership changes
-            if ( ( $this_group_members_status | Where-Object { $_.report -eq 1 } ).count -ne 0 ) {
+            if (0) {
+                #region proceed with detected membership changes
+                if ( ( $this_group_members_status | Where-Object { $_.report -eq 1 } ).count -ne 0 ) {
                 
-                Global:log -text ("proceeding with {0} membership changes" -F ( $this_group_members_status | Where-Object { $_.report -eq 1 } ).count ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
+                    Global:log -text ("proceeding with {0} membership changes" -F ( $this_group_members_status | Where-Object { $_.report -eq 1 } ).count ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
                 
-                #region membership change loop 
-                $this_group_members_status | Where-Object { $_.report -eq 1 } | ForEach-Object {
-                    $this_membership_change_record = $_
-                    $this_result = $result_array_row | Select-Object *
-                    $this_result.action = "membership updates"
-                    $status_log_row.report = 1
+                    #region membership change loop 
+                    $this_group_members_status | Where-Object { $_.report -eq 1 } | ForEach-Object {
+                        $this_membership_change_record = $_
+                        $this_result = $result_array_row | Select-Object *
+                        $this_result.action = "membership updates"
+                        $status_log_row.report = 1
 
-                    switch ($this_membership_change_record.status) {
-                        "delete" {
-                            try {
-                                # Attempt to remove membership
+                        switch ($this_membership_change_record.status) {
+                            "delete" {
+                                try {
+                                    # Attempt to remove membership
                                 
-                                Get-ADGroup -Identity $this_ad_group.DistinguishedName | Remove-ADGroupMember -Members $this_membership_change_record.distinguishedname -Confirm:$false
-                                Global:log -text (" - Removed membership of '{0}'" -F $this_membership_change_record.distinguishedname) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
-                                $this_dn_array = "" | Select-Object distinguishedname, result
-                                $this_dn_array.distinguishedname = $this_membership_change_record.distinguishedname
-                                $this_dn_array.result = "success"
-                                $this_result.result += $this_dn_array
-                            }
-                            catch {
-                                # Catch and handle the error
-                                $error_details = $_.Exception.Message
-                                Global:log -text (" ! Failed to removed membership of '{0}':{1}" -F $this_membership_change_record.distinguishedname, $error_details) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type error
-                                $this_dn_array = "" | Select-Object distinguishedname, result
-                                $this_dn_array.distinguishedname = $this_membership_change_record.distinguishedname
-                                $this_dn_array.result = "failed"
-                                $this_result.result += $error_details
+                                    Get-ADGroup -Identity $this_ad_group.DistinguishedName | Remove-ADGroupMember -Members $this_membership_change_record.distinguishedname -Confirm:$false
+                                    Global:log -text (" - Removed membership of '{0}'" -F $this_membership_change_record.distinguishedname) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type warning
+                                    $this_dn_array = "" | Select-Object distinguishedname, result
+                                    $this_dn_array.distinguishedname = $this_membership_change_record.distinguishedname
+                                    $this_dn_array.result = "success"
+                                    $this_result.result += $this_dn_array
+                                }
+                                catch {
+                                    # Catch and handle the error
+                                    $error_details = $_.Exception.Message
+                                    Global:log -text (" ! Failed to removed membership of '{0}':{1}" -F $this_membership_change_record.distinguishedname, $error_details) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )  -type error
+                                    $this_dn_array = "" | Select-Object distinguishedname, result
+                                    $this_dn_array.distinguishedname = $this_membership_change_record.distinguishedname
+                                    $this_dn_array.result = "failed"
+                                    $this_result.result += $error_details
+                                }
                             }
                         }
+                        $status_log_row.result += @($this_result)
+
+
                     }
-                    $status_log_row.result += @($this_result)
+                    #endregion
+                
 
 
+                }
+                else {
+                    Global:log -text ("no membership changes required." ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
                 }
                 #endregion
+
+                if ( ( $this_group_members_status | Where-Object { $_.status -eq "missing" }).count -ne 0 ) {
+                    Global:log -text (" > missing member(s)..." ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
+
+                    #region adding missing members
+                    try {
+                        # Attempt to add missing members
+                        Add-ADGroupMember -Identity $this_ad_group_distinguishedname -Members ($this_group_members_status | Where-Object { $_.status -eq 'missing' } | Select-Object -ExpandProperty distinguishedname)
+                        Global:log -text ("... added {0} members" -F ($this_group_members_status | Where-Object { $_.status -eq 'missing' } ).count) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
+                        $this_result = $result_array_row | Select-Object *
+                        $this_result.action = "update manager"
+                        $this_result.result = "success"
+                        $status_log_row.result = @($this_result)
+                        $status_log_row.report = 1
+                        $status_log_row.result = @($this_result)
+                    }
+                    catch {
+                        # Catch and handle the error
+                        $add_members_error = $_.Exception.Message
+                        Global:log -text ("... failed:{0}" -F $add_members_error) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type error
+                        $this_result = $result_array_row | Select-Object *
+                        $this_result.action = "update manager"
+                        $this_result.result = 'failed:{0}' -F $add_members_error 
+                        $status_log_row.result = @($this_result)
+                        $status_log_row.report = 1
+                        $status_log_row.result = @($this_result)
+                    }
                 
+                
+                    #endregion
 
-
-            }
-            else {
-                Global:log -text ("no membership changes required." ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
-            }
-            #endregion
-
-            if ( ( $this_group_members_status | Where-Object { $_.status -eq "missing" }).count -ne 0 ) {
-                Global:log -text (" > missing member(s)..." ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type warning
-
-                #region adding missing members
-                try {
-                    # Attempt to add missing members
-                    Add-ADGroupMember -Identity $this_ad_group_distinguishedname -Members ($this_group_members_status | Where-Object { $_.status -eq 'missing' } | Select-Object -ExpandProperty distinguishedname)
-                    Global:log -text ("... added {0} members" -F ($this_group_members_status | Where-Object { $_.status -eq 'missing' } ).count) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
-                    $this_result = $result_array_row | Select-Object *
-                    $this_result.action = "update manager"
-                    $this_result.result = "success"
-                    $status_log_row.result = @($this_result)
-                    $status_log_row.report = 1
-                    $status_log_row.result = @($this_result)
                 }
-                catch {
-                    # Catch and handle the error
-                    $add_members_error = $_.Exception.Message
-                    Global:log -text ("... failed:{0}" -F $add_members_error) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) -type error
-                    $this_result = $result_array_row | Select-Object *
-                    $this_result.action = "update manager"
-                    $this_result.result = 'failed:{0}' -F $add_members_error 
-                    $status_log_row.result = @($this_result)
-                    $status_log_row.report = 1
-                    $status_log_row.result = @($this_result)
+                else {
+                    Global:log -text (" > no missing members" ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
                 }
-                
-                
-                #endregion
-
-            }
-            else {
-                Global:log -text (" > no missing members" ) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department ) 
             }
         }
 
@@ -521,13 +526,14 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
         Global:log -text ("End") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department )
 
         $whole_status += $status_log_row
+        
     }
     Global:log -text ("End") -Hierarchy ("DepartmentGroups:{0}" -F $this_segment)
 }
 Global:log -text ("End") -Hierarchy "DepartmentGroups" 
 
 
-$whole_status | Where-Object { $_.report -eq 1 }
+$whole_status | Where-Object { $_.flag_reporting -eq $true }
 
 #
 #endregion

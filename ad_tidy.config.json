@@ -6,6 +6,68 @@
       "departments_groups_ou": "OU=departments,OU=company,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
       "departments_note_attribute_value": "#ADTidy #Auto",
       "departments_group_name_prefix": ""
+    },
+    "inventory": {
+      "sql hostname": "sql",
+      "sql database": "ittool",
+      "Active Directory Attributes": [
+        "employeeid",
+        "employeetype",
+        "samaccountname",
+        "extensionattribute2",
+        "extensionattribute6",
+        "userAccountControl",
+        "accountExpires",
+        "distinguishedname",
+        "givenName",
+        "sn",
+        "initials",
+        "displayname",
+        "company",
+        "department",
+        "extensionattribute5",
+        "departmentnumber",
+        "division",
+        "title",
+        "extensionattribute1",
+        "manager",
+        "physicaldeliveryofficename",
+        "streetaddress",
+        "postalcode",
+        "l",
+        "c",
+        "extensionattribute3",
+        "telephonenumber",
+        "mobile",
+        "preferredlanguage",
+        "msexchuserculture",
+        "extensionattribute4",
+        "extensionattribute7",
+        "description",
+        "info",
+        "mail",
+        "userprincipalname",
+        "proxyaddresses",
+        "whenChanged",
+        "whenCreated",
+        "pwdLastSet",
+        "homeMDB",
+        "thumbnailPhoto",
+        "ObjectGUID",
+        "msExchMailboxGuid"
+      ],
+      "Active Directory Extended Attributes": [
+        "lastLogonTimestamp",
+        "extensionAttribute9",
+        "extensionAttribute10",
+        "mailNickname",
+        "UserParameters"
+      ],
+      "Users OU": [
+        "OU=10_user,OU=1_EBM,DC=ebmgroup,DC=ch",
+        "OU=Accounts,OU=0_DomainAdministration,DC=ebmgroup,DC=ch",
+        "OU=20_group,OU=1_EBM,DC=ebmgroup,DC=ch"
+      ]
     }
   }
 }

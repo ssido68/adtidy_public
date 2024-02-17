@@ -78,7 +78,8 @@ function Global:ConvertTo-DataTable {
     )
     if ($NotMatch -eq ".+") {
         $Columns = $Source[0] | Select-Object * | Get-Member -MemberType NoteProperty | Where-Object { $_.Name -match "($Match)" }
-    } else {
+    }
+    else {
         $Columns = $Source[0] | Select-Object * | Get-Member -MemberType NoteProperty | Where-Object { $_.Name -notmatch "($NotMatch)" }
     }
     $DataTable = New-Object System.Data.DataTable
@@ -96,7 +97,8 @@ function Global:ConvertTo-DataTable {
     #Validate source column and row count to DataTable
     if ($Columns.Count -ne $DataTable.Columns.Count) {
         throw "Conversion failed: Number of columns in source does not match data table number of columns"
-    } else { 
+    }
+    else { 
         if ($Source.Count -ne $DataTable.Rows.Count) {
             throw "Conversion failed: Source row count not equal to data table row count"
         }
@@ -196,7 +198,7 @@ Function Global:Get-ListValues {
         $fields = Get-PnPField -List $listObject
         # create variable with only the fields we want to return
         $StandardFields = $fields | Where-Object { $_.FromBaseType -ne $true -or $standardFields -contains $_.InternalName } | 
-            Select-Object @{l = 'Title'; e = { $_.Title.Replace(' ', '') } }, InternalName
+        Select-Object @{l = 'Title'; e = { $_.Title.Replace(' ', '') } }, InternalName
     }
             
     process {
@@ -221,7 +223,8 @@ Function Global:Get-ListValues {
 function Global:ExpandSharepointLookupValue ($Value) {      
     if ($Value -is [Microsoft.SharePoint.Client.FieldLookupValue]) {
         $Value[0].LookupValue
-    } else {
+    }
+    else {
         $Value
     }
 }
@@ -289,7 +292,8 @@ function Global:Send-Mail {
                 }
                 
             }
-        } ELSE {
+        }
+        ELSE {
             $msg.TO.Add( $recipient)
             Global:Log -Hierarchy "Function:Send-Mail" -text ("Adding recipient:{0}" -F $recipient )
         }
@@ -327,12 +331,12 @@ function Global:Send-Mail {
 Function Global:DecodeUserAccountControl ([int]$UAC) {
     $UACPropertyFlags = @(
         "SCRIPT",
-        "ACCOUNTDISABLE",
+        "ACCOUNT_DISABLED",
         "RESERVED",
         "HOMEDIR_REQUIRED",
         "LOCKOUT",
-        "PASSWD_NOTREQD",
-        "PASSWD_CANT_CHANGE",
+        "PASSWD_NOT_REQUIRED",
+        "PASSWD_CANNOT_BE_CHANGE",
         "ENCRYPTED_TEXT_PWD_ALLOWED",
         "TEMP_DUPLICATE_ACCOUNT",
         "NORMAL_ACCOUNT",
@@ -342,7 +346,7 @@ Function Global:DecodeUserAccountControl ([int]$UAC) {
         "SERVER_TRUST_ACCOUNT",
         "RESERVED",
         "RESERVED",
-        "DONT_EXPIRE_PASSWORD",
+        "PASSWORD_NEVER_EXPIRES",
         "MNS_LOGON_ACCOUNT",
         "SMARTCARD_REQUIRED",
         "TRUSTED_FOR_DELEGATION",
@@ -385,7 +389,8 @@ function Global:Get-FileEncoding {
                 foreach ($i in 0..$preamble.Length) {
                     if ($preamble[$i] -ne $bom[$i]) {
                         break
-                    } elseif ($i -eq $preable.Length) {
+                    }
+                    elseif ($i -eq $preable.Length) {
                         $encoding_found = $encoding
                     }
                 }
@@ -425,7 +430,8 @@ function Global:API-ADimport_compare_Submit {
         $returnArray.target = $Array.item.Target_object
         if ( $Array.item.Record_Id -eq $null ) {
             $URI = $URI + "new"
-        } else {
+        }
+        else {
             $URI = $URI + "update"  
         }
         
@@ -604,7 +610,8 @@ function Global:API_Call () {
     if ( $AuthKey -ne $null) {
         $Headers = @{"AuthKey" = $AuthKey }
         $LogAuthString = ", Authentication is on"
-    } else {
+    }
+    else {
         $Headers = $null
         $LogAuthString = $null
     }

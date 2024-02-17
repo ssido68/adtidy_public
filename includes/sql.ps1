@@ -51,12 +51,11 @@ function Global:SQL_ADimport_Summary_reports {
 
 function Global:ADTidy_Inventory_Users_sql_table_check {
     param(
-        $Table_Name = "ADTidy_Inventory_Users
-"
+        $Table_Name = "ADTidy_Inventory_Users"
     )
 
     $config = @"
-    {"Fields": [{"name": "record_source","type": "VARCHAR(100)"},{"name": "record_lastcheck","type": "DATETIME"},{"name": "record_lastupdate","type": "DATETIME"},{"name": "ad_whenCreated","type": "DATETIME"},{"name": "ad_whenChanged","type": "DATETIME"},{"name": "ad_distinguishedname","type": "VARCHAR(MAX)"},{"name": "ad_pwdLastSet","type": "DATETIME"},{"name": "ad_extensionAttribute2","type": "VARCHAR(50)"},{"name": "ad_samaccountname","type": "VARCHAR(33)"},{"name": "ad_userprincipalname","type": "VARCHAR(100)"},{"name": "ad_objectguid","type": "VARCHAR(50)"},{"name": "ad_userAccountControl","type": "VARCHAR(100)"},{"name": "ad_accountExpires","type": "DATETIME"},{"name": "ad_extensionAttribute4","type": "VARCHAR(20)"},{"name": "ad_extensionAttribute7","type": "VARCHAR(MAX)"},{"name": "ad_givenName","type": "VARCHAR(50)"},{"name": "ad_sn","type": "VARCHAR(50)"},{"name": "ad_initials","type": "VARCHAR(10)"},{"name": "ad_displayname","type": "VARCHAR(50)"},{"name": "ad_division","type": "VARCHAR(20)"},{"name": "ad_description","type": "VARCHAR(MAX)"},{"name": "ad_info","type": "VARCHAR(MAX)"},{"name": "ad_company","type": "VARCHAR(100)"},{"name": "ad_department","type": "VARCHAR(16)"},{"name": "ad_extensionAttribute5","type": "VARCHAR(20)"},{"name": "ad_departmentnumber","type": "VARCHAR(20)"},{"name": "ad_title","type": "VARCHAR(50)"},{"name": "ad_employeeid","type": "VARCHAR(30)"},{"name": "ad_employeetype","type": "VARCHAR(30)"},{"name": "ad_extensionAttribute1","type": "VARCHAR(70)"},{"name": "ad_manager","type": "VARCHAR(MAX)"},{"name": "ad_thumbnailPhoto","type": "VARCHAR(MAX)"},{"name": "ad_physicaldeliveryofficename","type": "VARCHAR(100)"},{"name": "ad_streeatddress","type": "VARCHAR(50)"},{"name": "ad_postalcode","type": "VARCHAR(20)"},{"name": "ad_l","type": "VARCHAR(50)"},{"name": "ad_c","type": "VARCHAR(2)"},{"name": "ad_extensionAttribute3","type": "VARCHAR(2)"},{"name": "ad_preferredLanguage","type": "VARCHAR(30)"},{"name": "ad_telephonenumber","type": "VARCHAR(50)"},{"name": "ad_mobile","type": "VARCHAR(50)"},{"name": "ad_MsExchUserCulture","type": "VARCHAR(30)"},{"name": "ad_mail","type": "VARCHAR(100)"},{"name": "ad_homeMdb","type": "VARCHAR(MAX)"},{"name": "ad_msExchMailboxGuid","type": "VARCHAR(50)"},{"name": "ad_proxyaddresses","type": "XML"},{"name": "ad_extensionAttribute6","type": "VARCHAR(MAX)"},{"name": "az_MFA","type": "XML"},{"name": "xml_extended_attributes","type": "XML"}],"FieldsAssignement": [{"name": "record_source","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "record_source"}]}]},{"name": "record_lastcheck","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "record_lastcheck"}]}]},{"name": "record_lastupdate","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "current_datetime"}]}]},{"name": "ad_whenCreated","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "whenCreated"}]}]},{"name": "ad_whenChanged","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "whenChanged"}]}]},{"name": "ad_distinguishedname","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "distinguishedname"}]}]},{"name": "ad_pwdLastSet","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "pwdLastSet"}]}]},{"name": "ad_extensionAttribute2","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionattribute2"}]}]},{"name": "ad_samaccountname","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "samaccountname"}]}]},{"name": "ad_userprincipalname","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "userprincipalname"}]}]},{"name": "ad_objectguid","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "objectguid"}]}]},{"name": "ad_userAccountControl","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "useraccountcontrol"}]}]},{"name": "ad_accountExpires","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "accountexpires"}]}]},{"name": "ad_extensionAttribute4","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionAttribute4"}]}]},{"name": "ad_extensionAttribute7","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionAttribute7"}]}]},{"name": "ad_givenName","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "givenName"}]}]},{"name": "ad_sn","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "sn"}]}]},{"name": "ad_initials","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "initials"}]}]},{"name": "ad_displayname","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "displayname"}]}]},{"name": "ad_division","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "division"}]}]},{"name": "ad_description","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "description"}]}]},{"name": "ad_info","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "info"}]}]},{"name": "ad_company","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "company"}]}]},{"name": "ad_department","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "department"}]}]},{"name": "ad_extensionAttribute5","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionattribute5"}]}]},{"name": "ad_departmentnumber","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "departmentnumber"}]}]},{"name": "ad_title","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "title"}]}]},{"name": "ad_employeeid","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "employeeid"}]}]},{"name": "ad_employeetype","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "employeetype"}]}]},{"name": "ad_extensionAttribute1","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionattribute1"}]}]},{"name": "ad_manager","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "manager"}]}]},{"name": "ad_thumbnailPhoto","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "thumbnailPhoto"}]}]},{"name": "ad_physicaldeliveryofficename","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "physicaldeliveryofficename"}]}]},{"name": "ad_streeatddress","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "streeatddress"}]}]},{"name": "ad_postalcode","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "postalcode"}]}]},{"name": "ad_l","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "l"}]}]},{"name": "ad_c","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "c"}]}]},{"name": "ad_extensionAttribute3","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionAttribute3"}]}]},{"name": "ad_preferredLanguage","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "preferredLanguage"}]}]},{"name": "ad_telephonenumber","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "telephonenumber"}]}]},{"name": "ad_mobile","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "mobile"}]}]},{"name": "ad_MsExchUserCulture","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "MsExchUserCulture"}]}]},{"name": "ad_mail","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "mail"}]}]},{"name": "ad_homeMdb","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "homeMdb"}]}]},{"name": "ad_msExchMailboxGuid","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "msExchMailboxGuid"}]}]},{"name": "ad_proxyaddresses","Recipe":[{"ORDER":"1", "Content": [ {"Source": "","Type": ""}]}]},{"name": "ad_extensionAttribute6","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionattribute6"}]}]},{"name": "az_MFA","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "mfa"}]}]},{"name": "xml_extended_attributes","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "xml_extended_attributes"}]}]}]}										
+    {"Fields": [{"name": "record_source","type": "VARCHAR(100)"},{"name": "record_lastcheck","type": "DATETIME"},{"name": "record_lastupdate","type": "DATETIME"},{"name": "record_status","type": "VARCHAR(50)"},{"name": "ad_whenCreated","type": "DATETIME"},{"name": "ad_whenChanged","type": "DATETIME"},{"name": "ad_distinguishedname","type": "VARCHAR(MAX)"},{"name": "ad_pwdLastSet","type": "DATETIME"},{"name": "ad_extensionAttribute2","type": "VARCHAR(50)"},{"name": "ad_samaccountname","type": "VARCHAR(33)"},{"name": "ad_userprincipalname","type": "VARCHAR(100)"},{"name": "ad_objectguid","type": "VARCHAR(50)"},{"name": "ad_SID","type": "VARCHAR(50)"},{"name": "ad_userAccountControl","type": "VARCHAR(100)"},{"name": "ad_accountExpires","type": "DATETIME"},{"name": "ad_extensionAttribute4","type": "VARCHAR(20)"},{"name": "ad_extensionAttribute7","type": "VARCHAR(MAX)"},{"name": "ad_givenName","type": "VARCHAR(50)"},{"name": "ad_sn","type": "VARCHAR(50)"},{"name": "ad_initials","type": "VARCHAR(10)"},{"name": "ad_displayname","type": "VARCHAR(50)"},{"name": "ad_division","type": "VARCHAR(20)"},{"name": "ad_description","type": "VARCHAR(MAX)"},{"name": "ad_info","type": "VARCHAR(MAX)"},{"name": "ad_company","type": "VARCHAR(100)"},{"name": "ad_department","type": "VARCHAR(16)"},{"name": "ad_extensionAttribute5","type": "VARCHAR(20)"},{"name": "ad_departmentnumber","type": "VARCHAR(20)"},{"name": "ad_title","type": "VARCHAR(50)"},{"name": "ad_employeeid","type": "VARCHAR(30)"},{"name": "ad_employeetype","type": "VARCHAR(30)"},{"name": "ad_extensionAttribute1","type": "VARCHAR(70)"},{"name": "ad_manager","type": "VARCHAR(MAX)"},{"name": "ad_thumbnailPhoto","type": "VARCHAR(MAX)"},{"name": "ad_physicaldeliveryofficename","type": "VARCHAR(100)"},{"name": "ad_streeatddress","type": "VARCHAR(50)"},{"name": "ad_postalcode","type": "VARCHAR(20)"},{"name": "ad_l","type": "VARCHAR(50)"},{"name": "ad_c","type": "VARCHAR(2)"},{"name": "ad_extensionAttribute3","type": "VARCHAR(2)"},{"name": "ad_preferredLanguage","type": "VARCHAR(30)"},{"name": "ad_telephonenumber","type": "VARCHAR(50)"},{"name": "ad_mobile","type": "VARCHAR(50)"},{"name": "ad_MsExchUserCulture","type": "VARCHAR(30)"},{"name": "ad_mail","type": "VARCHAR(100)"},{"name": "ad_homeMdb","type": "VARCHAR(MAX)"},{"name": "ad_msExchMailboxGuid","type": "VARCHAR(50)"},{"name": "ad_proxyaddresses","type": "XML"},{"name": "ad_extensionAttribute6","type": "VARCHAR(MAX)"},{"name": "az_MFA","type": "XML"},{"name": "xml_extended_attributes","type": "XML"}],"FieldsAssignement": [{"name": "record_source","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "record_source"}]}]},{"name": "record_lastcheck","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "record_lastcheck"}]}]},{"name": "record_lastupdate","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "current_datetime"}]}]},{"name": "record_status","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "status"}]}]},{"name": "ad_whenCreated","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "whenCreated"}]}]},{"name": "ad_whenChanged","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "whenChanged"}]}]},{"name": "ad_distinguishedname","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "distinguishedname"}]}]},{"name": "ad_pwdLastSet","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "pwdLastSet"}]}]},{"name": "ad_extensionAttribute2","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionattribute2"}]}]},{"name": "ad_samaccountname","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "samaccountname"}]}]},{"name": "ad_userprincipalname","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "userprincipalname"}]}]},{"name": "ad_objectguid","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "objectguid"}]}]},{"name": "ad_SID","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "SID"}]}]},{"name": "ad_userAccountControl","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "useraccountcontrol"}]}]},{"name": "ad_accountExpires","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "accountexpires"}]}]},{"name": "ad_extensionAttribute4","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionAttribute4"}]}]},{"name": "ad_extensionAttribute7","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionAttribute7"}]}]},{"name": "ad_givenName","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "givenName"}]}]},{"name": "ad_sn","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "sn"}]}]},{"name": "ad_initials","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "initials"}]}]},{"name": "ad_displayname","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "displayname"}]}]},{"name": "ad_division","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "division"}]}]},{"name": "ad_description","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "description"}]}]},{"name": "ad_info","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "info"}]}]},{"name": "ad_company","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "company"}]}]},{"name": "ad_department","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "department"}]}]},{"name": "ad_extensionAttribute5","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionattribute5"}]}]},{"name": "ad_departmentnumber","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "departmentnumber"}]}]},{"name": "ad_title","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "title"}]}]},{"name": "ad_employeeid","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "employeeid"}]}]},{"name": "ad_employeetype","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "employeetype"}]}]},{"name": "ad_extensionAttribute1","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionattribute1"}]}]},{"name": "ad_manager","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "manager"}]}]},{"name": "ad_thumbnailPhoto","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Calculation","Type": "thumbnailPhoto"}]}]},{"name": "ad_physicaldeliveryofficename","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "physicaldeliveryofficename"}]}]},{"name": "ad_streeatddress","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "streeatddress"}]}]},{"name": "ad_postalcode","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "postalcode"}]}]},{"name": "ad_l","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "l"}]}]},{"name": "ad_c","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "c"}]}]},{"name": "ad_extensionAttribute3","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionAttribute3"}]}]},{"name": "ad_preferredLanguage","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "preferredLanguage"}]}]},{"name": "ad_telephonenumber","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "telephonenumber"}]}]},{"name": "ad_mobile","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "mobile"}]}]},{"name": "ad_MsExchUserCulture","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "MsExchUserCulture"}]}]},{"name": "ad_mail","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "mail"}]}]},{"name": "ad_homeMdb","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "homeMdb"}]}]},{"name": "ad_msExchMailboxGuid","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "msExchMailboxGuid"}]}]},{"name": "ad_proxyaddresses","Recipe":[{"ORDER":"1", "Content": [ {"Source": "","Type": ""}]}]},{"name": "ad_extensionAttribute6","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "extensionattribute6"}]}]},{"name": "az_MFA","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "mfa"}]}]},{"name": "xml_extended_attributes","Recipe":[{"ORDER":"1", "Content": [ {"Source": "Field","Type": "xml_extended_attributes"}]}]}]}										
 "@ | ConvertFrom-Json
 
 
@@ -202,11 +201,182 @@ function Global:ADTidy_Inventory_Users_sql_table_check {
     }
 }
 
+function Global:ADTidy_Inventory_Users_sql_update {
+    param(
+        [Parameter(Mandatory = $true)] [array]$Fields,
+        $Table_Name = "ADTidy_Inventory_Users"
+    )
+
+    #region ADTidy_Inventory_Users_sql_update specific
+    $prefixed_fields = "" | Select-Object ignore
+    $varchar_field = @()
+    $Fields | Get-Member | Where-Object { $_.membertype -eq "NoteProperty" } | Select-Object -ExpandProperty name | ForEach-Object {
+        $this_attribute_name = $_
+        $prefixed_attribute_name = "ad_{0}" -F $this_attribute_name
+        $varchar_field += $prefixed_attribute_name
+        $prefixed_fields = $prefixed_fields | Select-Object *, $prefixed_attribute_name
+        $prefixed_fields."$prefixed_attribute_name" = $Fields."$this_attribute_name"
+
+    }
+    $Fields = $prefixed_fields
+    Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand )  -text ( "prefixed_fields:{0}" -F $prefixed_fields | ConvertTo-Json -Compress    )
+
+    #endregion
+
+    #region function internal definitions
+    $table = "ADTidy_Inventory_Users"
+    #$sql_varchar_fields = @("entry_type", "entry_details", "user_type", "user_employeeid", "user_samaccountname", "user_guid", "execution_status_details", "execution_mode", "execution_operator_name", "execution_operator_action_timestamp", "execution_logs", "execution_last_update", "record_status")
+    #$sql_special_fields = @("entry_repeat", "entry_first_occurrence", "entry_last_occurrence", "execution_status_code")
+    #endregion
+
+    #region create INSERT statement field and value pairs, loop throuhg $Fields array matching sql_field definition
+    $sql_statement_fields = ""
+    $sql_statement_values = ""
+    $sql_update_statement = "$sql_update_statement"
+    $varchar_field | ForEach-Object {
+        $thisField = $_
+        if ( $Fields."$thisField" -ne $null ) {
+            #Global:api_log -text (" + `$Fields contains attribute '{0}'" -F $thisField) -hierarchy "function:adimport_sql_update:DEBUG"
+            $sql_statement_fields = "{0} [{1}]," -F $sql_statement_fields, $thisField
+            $sql_statement_values = "{0} '{1}'," -F $sql_statement_values, $Fields."$thisField"
+            $sql_update_statement = "{0} [{1}]='{2}'," -F $sql_update_statement, $thisField, $Fields."$thisField"
+        }
+        else {
+            #Global:api_log -text (" ! `$Fields misses attribute '{0}'" -F $thisField) -hierarchy "function:adimport_sql_update:DEBUG"
+        }
+    }
+    #endregion
+
+    #region check if this user ( guid based ) exists 
+    $exist_query = "select * FROM {0} WHERE ad_objectguid ='{1}'" -F $Table_Name, $Fields.ad_objectguid
+    $current_record = Global:sql_query -query $exist_query
+    if ( $current_record.count -ne 0) {
+        $action_type = "update"
+    }
+    else {
+        $action_type = "new"
+    }
+    #endregion
+
+    
+    #region new record
+    if ( $action_type -eq "new") {
+        Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand )  -text ( "action_type = new"  )
+
+
+        $sql_statement_fields = "{0} [record_source]," -F $sql_statement_fields
+        $sql_statement_values = "{0} 'ADTidy'," -F $sql_statement_values
+        $sql_statement_fields = "{0} [record_status]," -F $sql_statement_fields
+        $sql_statement_values = "{0} 'Current'," -F $sql_statement_values
+        $sql_statement_fields = "{0} [record_lastcheck]," -F $sql_statement_fields
+        $sql_statement_values = "{0} GETDATE()," -F $sql_statement_values
+        $sql_statement_fields = "{0} [record_lastupdate]," -F $sql_statement_fields
+        $sql_statement_values = "{0} GETDATE()," -F $sql_statement_values
+        
+        # remove last ',' from both fields and values strings
+        $sql_statement_fields = $sql_statement_fields -replace ".$"
+        $sql_statement_values = $sql_statement_values -replace ".$"
+
+        $sql_statement_insert = " INSERT INTO {0} ({1}) VALUES ({2})" -F $table, $sql_statement_fields, $sql_statement_values
+        
+        Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand )  -text ( "query:'{0}'" -F $sql_statement_insert  )
+        $insert_result = Global:sql_query -query $sql_statement_insert
+
+
+        #Global:api_log -text ("Inserted row id: '{0}' " -F $insert_result.rowid) -hierarchy "function:adimport_sql_update:DEBUG"
+        #return $insert_result.rowid
+    }
+    #endregion
+
+    exit
+    #region update record
+    if ( $action_type -eq "update" ) {
+        Global:log -text ("`$Fields.Record -eq update " -F $thisField) -hierarchy "function:adimport_sql_update:DEBUG"
+
+        $sql_update_statement = "{0} [entry_last_occurrence] = GETDATE()," -F $sql_update_statement
+        $sql_update_statement = "{0} [entry_repeat] = {1}," -F $sql_update_statement, $Fields.entry_repeat
+        Global:api_log -text ("`$Fields.user_guid -eq '{0}' -and `$Fields.entry_type -eq '{1}'" -F $Fields.user_guid, $Fields.entry_type ) -hierarchy "function:adimport_sql_update:DEBUG"
+
+        if ( $Fields.user_guid -eq $null -and $Fields.entry_type -eq "script") {
+            $sql_update_statement = "{0} [execution_status_code] = 'FAILED'," -F $sql_update_statement
+        }
+        else {
+            $sql_update_statement = "{0} [execution_status_code] = 'STDBY'," -F $sql_update_statement
+        }
+
+
+        $sql_update_filter = " [record_id] = {0}" -F $Fields.record_id
+
+        $sql_update_statement = "{0} [execution_last_update] = GETDATE()," -F $sql_update_statement
+
+        # remove last ',' from string
+        $sql_update_statement = $sql_update_statement -replace ".$"
+
+        $sql_statement_update = " UPDATE {0} SET {1} WHERE {2}" -F $table, $sql_update_statement, $sql_update_filter
+        Global:sql_query -query $sql_statement_update
+        return $Fields.record_id
+    }
+    #endregion
+
+
+
+    #region update_flat record
+    if ( $Fields.Record -eq "update_exec") {
+        Global:api_log -text ("`$Fields.Record -eq update_flat " -F $thisField) -hierarchy "function:adimport_sql_update:DEBUG"
+
+        $sql_update_statement = "{0} [execution_last_update] = GETDATE()," -F $sql_update_statement
+        $sql_update_filter = " [record_id] = {0}" -F $Fields.record_id
+
+        # remove last ',' from string
+        $sql_update_statement = $sql_update_statement -replace ".$"
+
+        $sql_statement_update = " UPDATE {0} SET {1} WHERE {2}" -F $table, $sql_update_statement, $sql_update_filter
+        Global:sql_query -query $sql_statement_update
+        return $Fields.record_id
+    }
+    #endregion
+
+    #region set record
+    $sql_special_fields | ForEach-Object {
+        $thisField = $_
+        if ( $Fields."$thisField" -ne $null ) {
+            Global:api_log -text (" + `$Fields contains attribute '{0}'" -F $thisField) -hierarchy "function:adimport_sql_update:DEBUG"
+            $sql_statement_fields = "{0} [{1}]," -F $sql_statement_fields, $thisField
+            $sql_statement_values = "{0} '{1}'," -F $sql_statement_values, $Fields."$thisField"
+            $sql_update_statement = "{0} [{1}]='{2}'," -F $sql_update_statement, $thisField, $Fields."$thisField"
+        }
+        else {
+            Global:api_log -text (" ! `$Fields misses attribute '{0}'" -F $thisField) -hierarchy "function:adimport_sql_update:DEBUG"
+        }
+    }
+    if ( $Fields.Record -eq "set") {
+        Global:api_log -text ("`$Fields.Record -eq set " -F $thisField) -hierarchy "function:adimport_sql_update:DEBUG"
+
+        #$sql_update_statement = "{0} [execution_operator_action_timestamp] = GETDATE()," -F $sql_update_statement
+        $sql_update_filter = " [record_id] = {0}" -F $Fields.record_id
+
+        $sql_update_statement = "{0} [execution_last_update] = GETDATE()" -F $sql_update_statement
+
+        # remove last ',' from string
+        #$sql_update_statement = $sql_update_statement -replace ".$"
+
+
+        $sql_statement_update = " UPDATE {0} SET {1} WHERE {2}" -F $table, $sql_update_statement, $sql_update_filter
+        #return $sql_statement_update
+        Global:sql_query -query $sql_statement_update
+        return $Fields.record_id
+        
+    }
+    #endregion
+
+
+}
+
 function Global_ADTidy_Iventory_Users_last_update {
     param(
         $Table_Name = "ADTidy_Inventory_Users"
     )
     Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand ) -text ("Retrieving last run timestamp..." )
 
-    Global:sql_query -query ("SELECT max(record_lastupdate) as maxrecord  FROM [{0}].[dbo].[{1}]" -F , $Table_Name )
+    return Global:sql_query -query ("SELECT max(record_lastupdate) as maxrecord  FROM [{0}]" -F $Table_Name )
 }

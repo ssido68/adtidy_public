@@ -60,15 +60,92 @@ Global:log -text ("Start V{0}" -F $Global:Version) -Hierarchy "Main"
 
 Global:ADTidy_Inventory_Users_sql_table_check
 
+$last_update = Global_ADTidy_Iventory_Users_last_update
 
+if ( ($last_update.maxrecord).length -eq 1 ) {
+    $filter = "*"
+}
 
 #region users
-Global:log -text ("retrieving users from AD...") -Hierarchy "Main:Users"
-$users = Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter * 
-Global:log -text ("{0} user objects retrieved" -F $users.Count) -Hierarchy "Main:Users"
-$users | Select-Object * | Where-Object { $_.samaccountname -eq "har3005" }
+Global:log -text ("retrieving users from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Users"
+$users = @()
+Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter $filter | ForEach-Object {
 
-get-aduser har3005
+    $this_row = $_
+    $this_calculated_row = "" | Select-Object ignore
+
+    $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
+        $this_attribute = $_
+        $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
+        Switch ( $this_attribute ) {
+            "accountexpires" {
+                $AccountExpiresRaw = [string]($this_row."$this_attribute")
+                if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
+                    $AccountExpires = $null
+                }
+                else {
+                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("dd/MM/yyyy HH:mm:ss") 
+                    if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
+                }
+                if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
+                ELSE { $CalulatedValue = "$AccountExpires" }
+                           
+                $this_calculated_row."$this_attribute" = $CalulatedValue
+
+            }
+            "pwdLastSet" {
+                $pwdLastSetRaw = [string]($this_row."$this_attribute")
+                if ( $pwdLastSetRaw -eq "9223372036854775807" ) { 
+                    $pwdLastSet = $null
+                }
+                else {
+                    $pwdLastSet = [datetime]::FromFileTime($pwdLastSetRaw).ToString("dd/MM/yyyy HH:mm:ss") 
+                    if ( $pwdLastSet -eq '1601-01-01 01:00:00' ) { $pwdLastSet = $null }
+                }
+                if ( $pwdLastSet.Length -eq 0 ) { $CalulatedValue = "NULL" }
+                ELSE { $CalulatedValue = "$pwdLastSet" }
+                           
+
+                $this_calculated_row."$this_attribute" = $CalulatedValue
+                
+            }
+            "useraccountcontrol" {
+                #write-host "> useraccountcontrol"
+                $CalulatedValue = Global:DecodeUserAccountControl ([int][string]($this_row."$this_attribute"))
+                #$CalulatedValue = "'$CalulatedValue'"
+                $this_calculated_row."$this_attribute" = $CalulatedValue
+            }
+            "thumbnailPhoto" {
+                if ( 0) {
+                    #Write-Host "thumbnailPhoto"
+                            
+                    if ( $ThisFieldValue -ne $null) {
+                        $CalulatedValue = "Is set"
+                    }
+                    else {
+                        $CalulatedValue = "NULL"
+                    }
+                    #Write-Host "value:$ThisFieldValue"
+                }
+            }
+            default {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" 
+            }
+
+        }
+    }
+    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore)
+
+    $users += $this_calculated_row
+
+}
+Global:log -text ("{0} user objects retrieved" -F $users.Count) -Hierarchy "Main:Users"
+
+$users | Select-Object * -ExcludeProperty name, objectclass, enabled | ForEach-Object {
+    Global:ADTidy_Inventory_Users_sql_update -Fields $_
+    exit
+}
+
 #endregion
 
 #endregion

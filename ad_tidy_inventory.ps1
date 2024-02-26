@@ -62,14 +62,25 @@ Global:ADTidy_Inventory_Users_sql_table_check
 
 $last_update = Global_ADTidy_Iventory_Users_last_update
 
-if ( ($last_update.maxrecord).length -eq 1 ) {
+if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
     $filter = "*"
 }
+else {
+    
+    $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
+    $filter = "whenchanged -ge '$filter_date'"
+}
+
+
 
 #region users
 Global:log -text ("retrieving users from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Users"
 $users = @()
-Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter $filter | ForEach-Object {
+<# PRD#>
+Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter $filter  | ForEach-Object { 
+    <# DEV 
+Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
+
 
     $this_row = $_
     $this_calculated_row = "" | Select-Object ignore
@@ -84,7 +95,22 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
                     $AccountExpires = $null
                 }
                 else {
-                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("dd/MM/yyyy HH:mm:ss") 
+                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
+                    if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
+                }
+                if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
+                ELSE { $CalulatedValue = "$AccountExpires" }
+                           
+                $this_calculated_row."$this_attribute" = $CalulatedValue
+
+            }
+            "lastLogonTimestamp" {
+                $AccountExpiresRaw = [string]($this_row."$this_attribute")
+                if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
+                    $AccountExpires = $null
+                }
+                else {
+                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
                     if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
                 }
                 if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
@@ -99,7 +125,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
                     $pwdLastSet = $null
                 }
                 else {
-                    $pwdLastSet = [datetime]::FromFileTime($pwdLastSetRaw).ToString("dd/MM/yyyy HH:mm:ss") 
+                    $pwdLastSet = [datetime]::FromFileTime($pwdLastSetRaw).ToString("yyyy-MM-dd HH:mm:ss") 
                     if ( $pwdLastSet -eq '1601-01-01 01:00:00' ) { $pwdLastSet = $null }
                 }
                 if ( $pwdLastSet.Length -eq 0 ) { $CalulatedValue = "NULL" }
@@ -128,22 +154,48 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
                     #Write-Host "value:$ThisFieldValue"
                 }
             }
+            "whenChanged" {
+                TRY {
+                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
+                    $this_calculated_row."$this_attribute" = $CalulatedValue 
+                }
+                CATCH {
+                    $this_calculated_row."$this_attribute" = $null
+                }
+                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
+                
+                
+            }
+            "whenCreated" {
+                TRY {
+                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
+                    $this_calculated_row."$this_attribute" = $CalulatedValue 
+                }
+                CATCH {
+                    $this_calculated_row."$this_attribute" = $null
+                }
+                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
+                
+            }
             default {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" 
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
             }
 
         }
     }
-    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore)
-
+    
+    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, surname)
     $users += $this_calculated_row
 
 }
+
 Global:log -text ("{0} user objects retrieved" -F $users.Count) -Hierarchy "Main:Users"
 
 $users | Select-Object * -ExcludeProperty name, objectclass, enabled | ForEach-Object {
-    Global:ADTidy_Inventory_Users_sql_update -Fields $_
-    exit
+    $this_user = $_
+    Global:ADTidy_Inventory_Users_sql_update -Fields $this_user
+
+    
 }
 
 #endregion

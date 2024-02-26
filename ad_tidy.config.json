@@ -54,7 +54,8 @@
         "homeMDB",
         "thumbnailPhoto",
         "ObjectGUID",
-        "msExchMailboxGuid"
+        "msExchMailboxGuid",
+        "lastLogonTimestamp"
       ],
       "Active Directory Extended Attributes": [
         "lastLogonTimestamp",

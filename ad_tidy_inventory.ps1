@@ -1,14 +1,13 @@
 Clear-Host
 #region ## script information
-$Global:Version = "0.0.1"
-# HAR3005, Primeo-Energie, 20240209
-#    Initial draft
+$Global:Version = "1.0.0"
+# HAR3005, Primeo-Energie, 20240227
+#    gather delta users, computers, OU and groups objects from Active Directory based of last whenchanged attribute for newer records
 #endregion
 
 
 Set-Location $PSScriptRoot
 $Global:ConfigFileName = "ad_tidy.config.json"
-$Global:RulesConfigFileName = "ad_tidy.rules.config.csv"
 
 
 #region ## global configuration variables
@@ -60,179 +59,6 @@ Global:log -text ("Start V{0}" -F $Global:Version) -Hierarchy "Main"
 
 
 
-#region computers
-Global:ADTidy_Inventory_Computers_sql_table_check
-
-
-$last_update = Global_ADTidy_Iventory_Computers_last_update
-
-if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
-    $filter = "*"
-}
-else {
-    
-    $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
-    $filter = "whenchanged -gt '$filter_date'"
-}
-Global:log -text ("retrieving computers from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Users"
-
-$computers = @()
-
-#region delta changes
-<# PRD#>
-Get-ADComputer -properties $global:config.Configurations.inventory.'Computers Active Directory Attributes' -filter $filter  | ForEach-Object { 
-    <# DEV 
-Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
-
-
-    $this_row = $_
-    $this_calculated_row = "" | Select-Object ignore
-
-    $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
-        $this_attribute = $_
-        $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
-        Switch ( $this_attribute ) {
-            "accountexpires" {
-                $AccountExpiresRaw = [string]($this_row."$this_attribute")
-                if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
-                    $AccountExpires = $null
-                }
-                else {
-                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                    if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
-                }
-                if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                ELSE { $CalulatedValue = "$AccountExpires" }
-                           
-                $this_calculated_row."$this_attribute" = $CalulatedValue
-
-            }
-            "lastLogonTimestamp" {
-                $AccountExpiresRaw = [string]($this_row."$this_attribute")
-                if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
-                    $AccountExpires = $null
-                }
-                else {
-                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                    if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
-                }
-                if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                ELSE { $CalulatedValue = "$AccountExpires" }
-                           
-                $this_calculated_row."$this_attribute" = $CalulatedValue
-
-            }
-            "pwdLastSet" {
-                $pwdLastSetRaw = [string]($this_row."$this_attribute")
-                if ( $pwdLastSetRaw -eq "9223372036854775807" ) { 
-                    $pwdLastSet = $null
-                }
-                else {
-                    $pwdLastSet = [datetime]::FromFileTime($pwdLastSetRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                    if ( $pwdLastSet -eq '1601-01-01 01:00:00' ) { $pwdLastSet = $null }
-                }
-                if ( $pwdLastSet.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                ELSE { $CalulatedValue = "$pwdLastSet" }
-                           
-
-                $this_calculated_row."$this_attribute" = $CalulatedValue
-                
-            }
-            "useraccountcontrol" {
-                #write-host "> useraccountcontrol"
-                $CalulatedValue = Global:DecodeUserAccountControl ([int][string]($this_row."$this_attribute"))
-                #$CalulatedValue = "'$CalulatedValue'"
-                $this_calculated_row."$this_attribute" = $CalulatedValue
-            }
-            "thumbnailPhoto" {
-                if ( 0) {
-                    #Write-Host "thumbnailPhoto"
-                            
-                    if ( $ThisFieldValue -ne $null) {
-                        $CalulatedValue = "Is set"
-                    }
-                    else {
-                        $CalulatedValue = "NULL"
-                    }
-                    #Write-Host "value:$ThisFieldValue"
-                }
-            }
-            "whenChanged" {
-                TRY {
-                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                }
-                CATCH {
-                    $this_calculated_row."$this_attribute" = $null
-                }
-                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                
-            }
-            "whenCreated" {
-                TRY {
-                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                }
-                CATCH {
-                    $this_calculated_row."$this_attribute" = $null
-                }
-                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-            }
-            default {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-            }
-
-        }
-    }
-    
-    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, enabled)
-    $computers += $this_calculated_row
-
-}
-
-if ( $computers.Count -eq 0 ) {
-    Global:log -text ("No  computers objects changes found" -F $computers.Count) -Hierarchy "Main:Ou:delta changes" -type warning
-}
-else {
-    Global:log -text ("{0} computers objects retrieved" -F $computers.Count) -Hierarchy "Main:Users:delta changes"
-
-    $computers | Select-Object * -ExcludeProperty  objectclass, DNSHostName, UserPrincipalName | ForEach-Object {
-        $this_computer = $_
-        Global:ADTidy_Inventory_Computers_sql_update -Fields $this_computer
-    }
-
-}
-exit
-#endregion
-
-#region deleted records detect
-$sql_current_records = Global_ADTidy_Iventory_Users_all_current_records 
-$ad_current_records = Get-ADUser -filter * -Properties objectguid | Select-Object -ExpandProperty objectguid
-Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Users:deleted detect"
-$flag_deleted = 0
-
-$sql_current_records | ForEach-Object {
-    $this_sql_record = $_
-    if ( $ad_current_records -notcontains $this_sql_record.ad_objectguid) {
-        Global:log -text ("Detected a deleted AD account:'{0}' " -F ($this_sql_record | Select-Object ad_samaccountname, ad_objectguid, ad_sid | ConvertTo-Json -Compress)) -Hierarchy "Main:Users:deleted detect"
-        $delete_record = $this_sql_record | Select-Object @{name = 'Objectguid'; expression = { $_.ad_ObjectGUID } }, record_status
-        $delete_record.record_status = "Deleted"
-        Global:ADTidy_Inventory_Users_sql_update -Fields $delete_record
-        $flag_deleted = 1
-    }
-}
-if ( $flag_deleted -eq 0) {
-    Global:log -text ("No deleted user record found." ) -Hierarchy "Main:Users:deleted detect" -type warning
-
-}
-#endregion
-
-#endregion
-
-
-exit
 
 #region OU
 Global:ADTidy_Inventory_OU_sql_table_check
@@ -508,6 +334,138 @@ $sql_current_records | ForEach-Object {
 }
 if ( $flag_deleted -eq 0) {
     Global:log -text ("No deleted user record found." ) -Hierarchy "Main:Users:deleted detect" -type warning
+
+}
+#endregion
+
+#endregion
+
+#region computers
+Global:ADTidy_Inventory_Computers_sql_table_check
+
+
+$last_update = Global_ADTidy_Iventory_Computers_last_update
+
+if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
+    $filter = "*"
+}
+else {
+    
+    $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
+    $filter = "whenchanged -gt '$filter_date'"
+}
+Global:log -text ("retrieving computers from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Users"
+
+$computers = @()
+
+#region delta changes
+<# PRD#>
+Get-ADComputer -properties $global:config.Configurations.inventory.'Computers Active Directory Attributes' -filter $filter  | ForEach-Object { 
+    <# DEV 
+Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
+
+
+    $this_row = $_
+    $this_calculated_row = "" | Select-Object ignore
+
+    $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
+        $this_attribute = $_
+        $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
+        Switch ( $this_attribute ) {
+            "managedBy" {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
+            }
+            "info" {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
+            }
+            "description" {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
+            }
+            "lastLogonTimestamp" {
+                $AccountExpiresRaw = [string]($this_row."$this_attribute")
+                if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
+                    $AccountExpires = $null
+                }
+                else {
+                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
+                    if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
+                }
+                if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
+                ELSE { $CalulatedValue = "$AccountExpires" }
+                           
+                $this_calculated_row."$this_attribute" = $CalulatedValue
+
+            }
+            "whenChanged" {
+                TRY {
+                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
+                    $this_calculated_row."$this_attribute" = $CalulatedValue 
+                }
+                CATCH {
+                    $this_calculated_row."$this_attribute" = $null
+                }
+                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
+                
+                
+            }
+            "whenCreated" {
+                TRY {
+                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
+                    $this_calculated_row."$this_attribute" = $CalulatedValue 
+                }
+                CATCH {
+                    $this_calculated_row."$this_attribute" = $null
+                }
+                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
+                
+            }
+            default {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+            }
+
+        }
+    }
+    
+    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, enabled)
+    $computers += $this_calculated_row
+
+}
+
+if ( $computers.Count -eq 0 ) {
+    Global:log -text ("No  computers objects changes found" -F $computers.Count) -Hierarchy "Main:Computers:delta changes" -type warning
+}
+else {
+    Global:log -text ("{0} computers objects retrieved" -F $computers.Count) -Hierarchy "Main:Computers:delta changes"
+
+    $computers | Select-Object * -ExcludeProperty  objectclass, DNSHostName, UserPrincipalName | ForEach-Object {
+        $this_computer = $_
+        Global:ADTidy_Inventory_Computers_sql_update -Fields $this_computer
+    }
+
+}
+#endregion
+
+#region deleted records detect
+$sql_current_records = Global_ADTidy_Iventory_Computers_all_current_records 
+$ad_current_records = Get-Adcomputer -filter * -Properties objectguid | Select-Object -ExpandProperty objectguid
+Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Computers:deleted detect"
+$flag_deleted = 0
+
+$sql_current_records | ForEach-Object {
+    $this_sql_record = $_
+    if ( $ad_current_records -notcontains $this_sql_record.ad_objectguid) {
+        Global:log -text ("Detected a deleted AD account:'{0}' " -F ($this_sql_record | Select-Object ad_samaccountname, ad_objectguid, ad_sid | ConvertTo-Json -Compress)) -Hierarchy "Main:Computers:deleted detect"
+        $delete_record = $this_sql_record | Select-Object @{name = 'Objectguid'; expression = { $_.ad_ObjectGUID } }, record_status
+        $delete_record.record_status = "Deleted"
+        Global:ADTidy_Inventory_Computers_sql_update -Fields $delete_record
+        $flag_deleted = 1
+    }
+}
+if ( $flag_deleted -eq 0) {
+    Global:log -text ("No deleted computer record found." ) -Hierarchy "Main:Computers:deleted detect" -type warning
 
 }
 #endregion

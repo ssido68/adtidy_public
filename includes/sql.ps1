@@ -1216,5 +1216,13 @@ function Global:ADTidy_Inventory_Computers_sql_update {
 
 
 }
+function Global_ADTidy_Iventory_Computers_all_current_records {
+    param(
+        $Table_Name = "ADTidy_Inventory_Computers"
+    )
+    Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand ) -text ("Retrieving all computer records" )
+
+    return Global:sql_query -query ("SELECT [ad_name],[ad_objectguid],[ad_distinguishedname] FROM [ittool].[dbo].[{0}] WHERE [record_status] = 'Current'" -F $Table_Name )
+}
 
 										

@@ -64,6 +64,7 @@
         "samaccountname",
         "name",
         "distinguishedname",
+        "lastLogonTimestamp",
         "description",
         "info",
         "managedBy",

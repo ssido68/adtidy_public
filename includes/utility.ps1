@@ -664,3 +664,37 @@ function Global:API_Call () {
 
     return $ReturnedArray
 }
+function Global:ConvertTo-SimplifiedXML {
+    [CmdletBinding()]
+    param (
+        #Object to Input
+        [Parameter(ValueFromPipeline)]$InputObject,
+        #Name of the root document node. Defaults to "Objects"
+        $RootNodeName = "Objects",
+        $NodeName = "Object"
+    )
+
+    begin {
+        $XmlTemplateOuter = "<?xml version=""1.0""?><$RootNodeName>{0}</$RootNodeName>"
+        $XmlTemplateObject = "<$NodeName>{0}</$NodeName>"
+        $XmlTemplateObjects = ""
+    }
+
+    process {
+        $Properties = $InputObject | Get-Member -MemberType properties | Select-Object name
+        $InputObject | ForEach-Object {
+            $LineString = ""
+            $ObjectLine = $_
+            $Properties | ForEach-Object {
+                $CurrentPropertyName = $_.Name
+                $LineString = "{2}<{0}>{1}</{0}>" -F $CurrentPropertyName, $ObjectLine."$CurrentPropertyName", $LineString
+            }
+            $LineString = $XmlTemplateObject -f $LineString
+            $XmlTemplateObjects = "{1}{0}" -f $LineString, $XmlTemplateObjects
+        }
+    }
+
+    end {
+        return $XmlTemplateOuter -F $XmlTemplateObjects
+    }
+}

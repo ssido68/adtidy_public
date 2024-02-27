@@ -66,6 +66,20 @@
         "businessCategory",
         "managedBy"
       ],
+      "Groups Active Directory Attributes": [
+        "name",
+        "whenCreated",
+        "whenChanged",
+        "distinguishedname",
+        "objectguid",
+        "businessCategory",
+        "managedBy",
+        "info",
+        "description",
+        "member",
+        "extensionattribute1",
+        "extensionattribute2"
+      ],
       "Active Directory Extended Attributes": [
         "lastLogonTimestamp",
         "extensionAttribute9",

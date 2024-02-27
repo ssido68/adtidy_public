@@ -60,7 +60,6 @@ Global:log -text ("Start V{0}" -F $Global:Version) -Hierarchy "Main"
 
 
 
-
 #region OU
 Global:ADTidy_Inventory_OU_sql_table_check
 
@@ -72,11 +71,11 @@ if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
 else {
     
     $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
-    $filter = "whenchanged -ge '$filter_date'"
+    $filter = "whenchanged -gt '$filter_date'"
 }
 Global:log -text ("retrieving users from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Ou"
 $Organizational_units = @()
-Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configurations.inventory.'OU Active Directory Attributes' | Select-Object name, whenCreated, whenChanged, distinguishedname, objectguid, businessCategory, managedBy | ForEach-Object { 
+Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configurations.inventory.'OU Active Directory Attributes' | Select-Object name, whenCreated, whenChanged, distinguishedname, objectguid, businessCategory, managedBy | Sort-Object whenChanged | ForEach-Object { 
     $this_row = $_
 
     $this_calculated_row = "" | Select-Object ignore
@@ -134,14 +133,19 @@ Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configuratio
     $Organizational_units += $this_calculated_row
 
 }
-Global:log -text ("{0} Ou objects retrieved" -F $Organizational_units.Count) -Hierarchy "Main:Ou:delta changes"
 
-
-$Organizational_units | Select-Object * | ForEach-Object {
-    $this_ou = $_
-    Global:ADTidy_Inventory_OU_sql_update -Fields $this_ou
+if (  $Organizational_units.Count -eq 0 ) {
+    Global:log -text ("No Ou objects changes found" -F $Organizational_units.Count) -Hierarchy "Main:Ou:delta changes" -type warning
 }
+else {
+    Global:log -text ("{0} Ou objects retrieved" -F $Organizational_units.Count) -Hierarchy "Main:Ou:delta changes"
 
+
+    $Organizational_units | Select-Object * | ForEach-Object {
+        $this_ou = $_
+        Global:ADTidy_Inventory_OU_sql_update -Fields $this_ou
+    }
+}
 #region deleted records detect
 $sql_current_records = Global_ADTidy_Iventory_OU_all_current_records 
 $ad_current_records = Get-ADOrganizationalUnit -filter * -Properties objectguid | Select-Object -ExpandProperty objectguid
@@ -164,7 +168,7 @@ if ( $flag_deleted -eq 0) {
 }
 #endregion
 
-exit
+    
 #endregion
 
 #region users
@@ -178,7 +182,7 @@ if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
 else {
     
     $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
-    $filter = "whenchanged -ge '$filter_date'"
+    $filter = "whenchanged -gt '$filter_date'"
 }
 Global:log -text ("retrieving users from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Users"
 $users = @()
@@ -297,11 +301,17 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
 
 }
 
-Global:log -text ("{0} user objects retrieved" -F $users.Count) -Hierarchy "Main:Users:delta changes"
+if ( $users.Count -eq 0 ) {
+    Global:log -text ("No Ou users objects changes found" -F $Organizational_units.Count) -Hierarchy "Main:Ou:delta changes" -type warning
+}
+else {
+    Global:log -text ("{0} user objects retrieved" -F $users.Count) -Hierarchy "Main:Users:delta changes"
 
-$users | Select-Object * -ExcludeProperty name, objectclass, enabled | ForEach-Object {
-    $this_user = $_
-    Global:ADTidy_Inventory_Users_sql_update -Fields $this_user
+    $users | Select-Object * -ExcludeProperty name, objectclass, enabled | ForEach-Object {
+        $this_user = $_
+        Global:ADTidy_Inventory_Users_sql_update -Fields $this_user
+    }
+
 }
 
 #endregion
@@ -324,6 +334,142 @@ $sql_current_records | ForEach-Object {
 }
 if ( $flag_deleted -eq 0) {
     Global:log -text ("No deleted user record found." ) -Hierarchy "Main:Users:deleted detect" -type warning
+
+}
+#endregion
+
+#endregion
+
+
+#region Groups
+Global:ADTidy_Inventory_Groups_sql_table_check
+
+
+$last_update = Global_ADTidy_Iventory_Groups_last_update
+
+if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
+    $filter = "*"
+}
+else {
+    
+    $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
+    $filter = "whenchanged -gt '$filter_date'"
+}
+Global:log -text ("retrieving users from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Groups"
+$groups = @()
+
+
+#region delta changes
+<# PRD#>
+Get-ADGroup -properties $global:config.Configurations.inventory.'Groups Active Directory Attributes' -filter $filter  | Sort-Object whenchanged  | ForEach-Object { 
+    <# DEV 
+Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
+
+
+    $this_row = $_
+    $this_calculated_row = "" | Select-Object ignore
+
+    $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
+        $this_attribute = $_
+        $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
+        Switch ( $this_attribute ) {
+            "member" {
+                $members_array = @()
+                $this_row."$this_attribute" | ForEach-Object {
+                    $line = "" | Select-Object distinguishedname
+                    $line.distinguishedName = $_
+                    $members_array += $line
+                }
+                $this_calculated_row = $this_calculated_row | Select-Object *, "xml_members"
+                $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
+            }
+            "managedBy" {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
+            }
+            "info" {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
+            }
+            "description" {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
+            }
+            "extensionattribute1" {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
+            }
+            "extensionattribute2" {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
+            }
+            "whenChanged" {
+                TRY {
+                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
+                    $this_calculated_row."$this_attribute" = $CalulatedValue 
+                }
+                CATCH {
+                    $this_calculated_row."$this_attribute" = $null
+                }
+                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
+                
+                
+            }
+            "whenCreated" {
+                TRY {
+                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
+                    $this_calculated_row."$this_attribute" = $CalulatedValue 
+                }
+                CATCH {
+                    $this_calculated_row."$this_attribute" = $null
+                }
+                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
+                
+            }
+            default {
+                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+            }
+
+        }
+    }
+    
+    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, surname)
+    $groups += $this_calculated_row
+
+}
+
+if ( $groups.Count -eq 0 ) {
+    Global:log -text ("no group objects changes found" -F $groups.Count) -Hierarchy "Main:Groups:delta changes" -type warning
+}
+else {
+    Global:log -text ("{0} group objects retrieved" -F $groups.Count) -Hierarchy "Main:Groups:delta changes"
+
+    $groups | Select-Object * -ExcludeProperty objectclass | ForEach-Object {
+        $this_group = $_
+        Global:ADTidy_Inventory_Groups_sql_update -Fields $this_group
+    }
+}
+#endregion
+
+
+#region deleted records detect
+$sql_current_records = Global_ADTidy_Iventory_Groups_all_current_records 
+$ad_current_records = Get-ADGroup -filter * -Properties objectguid | Select-Object -ExpandProperty objectguid
+Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Groups:deleted detect"
+$flag_deleted = 0
+
+$sql_current_records | ForEach-Object {
+    $this_sql_record = $_
+    if ( $ad_current_records -notcontains $this_sql_record.ad_objectguid) {
+        Global:log -text ("Detected a deleted AD group:'{0}' " -F ($this_sql_record | Select-Object ad_samaccountname, ad_objectguid, ad_sid | ConvertTo-Json -Compress)) -Hierarchy "Main:Users:deleted detect"
+        $delete_record = $this_sql_record | Select-Object @{name = 'Objectguid'; expression = { $_.ad_ObjectGUID } }, record_status
+        $delete_record.record_status = "Deleted"
+        Global:ADTidy_Inventory_Groups_sql_update -Fields $delete_record
+        $flag_deleted = 1
+    }
+}
+if ( $flag_deleted -eq 0) {
+    Global:log -text ("No deleted group record found." ) -Hierarchy "Main:Groups:deleted detect" -type warning
 
 }
 #endregion

@@ -97,18 +97,6 @@
         "member",
         "extensionattribute1",
         "extensionattribute2"
-      ],
-      "Active Directory Extended Attributes": [
-        "lastLogonTimestamp",
-        "extensionAttribute9",
-        "extensionAttribute10",
-        "mailNickname",
-        "UserParameters"
-      ],
-      "Users OU": [
-        "OU=10_user,OU=1_EBM,DC=ebmgroup,DC=ch",
-        "OU=Accounts,OU=0_DomainAdministration,DC=ebmgroup,DC=ch",
-        "OU=20_group,OU=1_EBM,DC=ebmgroup,DC=ch"
       ]
     }
   }

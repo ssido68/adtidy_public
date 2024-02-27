@@ -10,7 +10,7 @@
     "inventory": {
       "sql hostname": "sql",
       "sql database": "ittool",
-      "Active Directory Attributes": [
+      "Users Active Directory Attributes": [
         "employeeid",
         "employeetype",
         "samaccountname",
@@ -56,6 +56,15 @@
         "ObjectGUID",
         "msExchMailboxGuid",
         "lastLogonTimestamp"
+      ],
+      "OU Active Directory Attributes": [
+        "distinguishedname",
+        "whenCreated",
+        "whenChanged",
+        "distinguishedname",
+        "objectguid",
+        "businessCategory",
+        "managedBy"
       ],
       "Active Directory Extended Attributes": [
         "lastLogonTimestamp",

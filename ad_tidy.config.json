@@ -57,6 +57,23 @@
         "msExchMailboxGuid",
         "lastLogonTimestamp"
       ],
+      "Computers Active Directory Attributes": [
+        "whenCreated",
+        "whenChanged",
+        "objectguid",
+        "samaccountname",
+        "name",
+        "distinguishedname",
+        "description",
+        "info",
+        "managedBy",
+        "operatingSystem",
+        "operatingSystemVersion",
+        "extensionattribute1",
+        "extensionattribute2",
+        "extensionattribute3",
+        "extensionattribute4"
+      ],
       "OU Active Directory Attributes": [
         "distinguishedname",
         "whenCreated",

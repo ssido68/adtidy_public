@@ -93,6 +93,7 @@ Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configuratio
                     # remove last ',' from string
                     $businesscategory_string = $businesscategory_string -replace ".$"
                     $this_calculated_row."$this_attribute" = $businesscategory_string
+                    if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
                 }
                 CATCH {
 
@@ -124,6 +125,7 @@ Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configuratio
             }
             default {
                 $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
             }
 
         }
@@ -291,6 +293,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
             }
             default {
                 $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
             }
 
         }
@@ -372,18 +375,6 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
         $this_attribute = $_
         $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
         Switch ( $this_attribute ) {
-            "managedBy" {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-            }
-            "info" {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-            }
-            "description" {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-            }
             "lastLogonTimestamp" {
                 $AccountExpiresRaw = [string]($this_row."$this_attribute")
                 if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
@@ -424,6 +415,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
             }
             default {
                 $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
             }
 
         }
@@ -514,26 +506,6 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
                 $this_calculated_row = $this_calculated_row | Select-Object *, "xml_members"
                 $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
             }
-            "managedBy" {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-            }
-            "info" {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-            }
-            "description" {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-            }
-            "extensionattribute1" {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-            }
-            "extensionattribute2" {
-                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-            }
             "whenChanged" {
                 TRY {
                     $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
@@ -559,6 +531,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
             }
             default {
                 $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
+                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
             }
 
         }

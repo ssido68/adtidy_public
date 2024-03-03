@@ -3,8 +3,8 @@
     "company groups": {
       "segments_groups_ou": "OU=segments,OU=organisation,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
       "segments_group_name_prefix": "ORG_IT_",
-      "hr_departments_groups_ou": "OU=departments,OU=organisation,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
-      "it_departments_groups_ou": "OU=departments,OU=organisation,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
+      "hr_departments_groups_ou": "OU=HR,OU=departments,OU=organisation,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
+      "it_departments_groups_ou": "OU=IT,OU=departments,OU=organisation,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
       "departments_group_name_prefix": "",
       "it_groups_prefix": "ORG_IT_",
       "hr_groups_prefix": "ORG_HR_"

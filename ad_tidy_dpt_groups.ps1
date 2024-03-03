@@ -3,6 +3,9 @@
 $Global:Version = "0.0.1"
 # HAR3005, Primeo-Energie, 20240209
 #    Initial draft
+$Global:Version = "1.0.1"
+# HAR3005, Primeo-Energie, 20240303
+#    pre-HR/IT
 #endregion
 
 
@@ -68,15 +71,26 @@ $Global:ConfigPurgeTempFilesFilter | ForEach-Object {
 
 #region retrieve configuration: target segment groups OU
 $global:segments_ou = $global:Config.Configurations.'company groups'.segments_groups_ou
-$global:departments_ou = $global:Config.Configurations.'company groups'.departments_groups_ou
+$global:hr_departments_ou = $global:Config.Configurations.'company groups'.hr_departments_groups_ou
 #endregion
 
 #region get target OU attributes, looking for manager information
-$global:segments_ou_adobject = Get-ADOrganizationalUnit -Identity $global:segments_ou
+$global:segments_ou_adobject = Get-ADOrganizationalUnit -Identity $global:segments_ou -Properties managedBy, businessCategory
 $global:segments_ou_manager = $global:segments_ou_adobject.ManagedBy
 
-$global:department_ou_adobject = Get-ADOrganizationalUnit -Identity $global:departments_ou
-$global:department_ou_manager = $global:department_ou_adobject.ManagedBy
+$global:hr_department_ou_adobject = Get-ADOrganizationalUnit -Identity $global:hr_departments_ou
+$global:hr_department_ou_manager = $global:hr_department_ou_adobject.ManagedBy
+
+$segment_ou_hashtags = @()
+$global:segments_ou_adobject.businessCategory | ForEach-Object {
+    $this_category = $_
+    switch ( $this_category ) {
+        "Organisation" { $segment_ou_hashtags += "#Orga" }
+        default { $segment_ou_hashtags += "#{0}" -F $this_category }
+    }
+
+
+}
 
 
 $global:group_security = 'Security'
@@ -95,8 +109,13 @@ $status_log_action_log_row_template = "" | Select-Object timestamp, type, target
 
 #region Segment Groups
 Global:log -text ("Start") -Hierarchy "SegmentsGroups" 
-$segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter * -Properties managedby, name, distinguishedname | Select-Object name, managedby, distinguishedname
-$segment_groups_required = $raw_data_segments_groupby | Select-Object -ExpandProperty name
+$segment_groups_existing = Get-ADGroup -SearchBase ($global:segments_ou) -filter * -Properties managedby, name, distinguishedname, extensionattribute1 | Select-Object name, managedby, distinguishedname, extensionattribute1
+$segment_groups_required = @()
+$raw_data_segments_groupby | Select-Object -ExpandProperty name | ForEach-Object {
+    $this_segment_raw_name = $_
+    $segment_groups_required += "{1}" -F $global:Config.Configurations.'company groups'.segments_group_name_prefix, (( Remove-StringDiacritic -string $this_segment_raw_name).replace(" ", "-"))
+}
+
 
 $whole_status = @()
 $segment_groups_required | ForEach-Object {
@@ -154,6 +173,47 @@ $segment_groups_required | ForEach-Object {
             }
         }
 
+        $extensionattribute1 = $segment_ou_hashtags -join " "
+        $current_extensionattribute1 = $segment_groups_existing | Where-Object { $_.name -eq $status_log_row.group_name } | Select-Object -ExpandProperty extensionattribute1        
+        if ( $current_extensionattribute1 -eq $extensionattribute1 ) {
+            Global:log -text (" > not required. hashtags ( extensionattribute1 ) didn't change") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group)
+            $status_log_row.action_type = "-"
+            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+            $log_record.timestamp = get-date
+            $log_record.type = "update extensionattribute1"
+            $log_record.result = "skipped"
+            $log_record.target = $current_extensionattribute1
+            $status_log_row.action_logs = @($log_record)
+
+        }
+        else {
+            try {
+                # Attempt to update the group manager
+                Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group_name) | Set-ADGroup -Replace @{"extensionattribute1" = $extensionattribute1 }
+
+                Global:log -text (" > extensionattribute1 updated successfully") -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name)
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                $log_record.timestamp = get-date
+                $log_record.type = "update extensionattribute1"
+                $log_record.result = "success"
+                $log_record.target = $extensionattribute1
+                $status_log_row.action_logs = @($log_record)
+                $status_log_row.flag_reporting = $true
+            }
+            catch {
+                # Catch and handle the error
+                $extensionattribute1_update_error = $_.Exception.Message
+                $flag_segment_group_update_success = 0
+                Global:log -text (" > extensionattribute1 updated failed:{0}" -F $extensionattribute1_update_error) -Hierarchy ("SegmentsGroups:{0}" -F $status_log_row.group_name) -type error
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+                $log_record.timestamp = get-date
+                $log_record.type = "update extensionattribute1"
+                $log_record.result = 'failed:{0}' -F $extensionattribute1_update_error 
+                $log_record.target = $extensionattribute1
+                $status_log_row.action_logs = @($log_record)
+                $status_log_row.flag_reporting = $true
+            }
+        }
 
         
     }
@@ -234,11 +294,12 @@ $segment_groups_required | ForEach-Object {
     }
     $whole_status += $status_log_row
 }
+
 Global:log -text ("End") -Hierarchy "SegmentsGroups" 
 $whole_status | Where-Object { $_.flag_reporting -eq $true }
-
 #endregion
 
+exit
 
 #region Department Groups
 # group by, splitting 'name' instead of the comma separated value of multiple group-object columns

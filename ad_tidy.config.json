@@ -1,11 +1,13 @@
 ﻿{
   "Configurations": {
     "company groups": {
-      "segments_groups_ou": "OU=segments,OU=company,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
-      "segments_group_name_prefix": "",
-      "departments_groups_ou": "OU=departments,OU=company,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
-      "departments_note_attribute_value": "#ADTidy #Auto",
-      "departments_group_name_prefix": ""
+      "segments_groups_ou": "OU=segments,OU=organisation,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
+      "segments_group_name_prefix": "ORG_IT_",
+      "hr_departments_groups_ou": "OU=departments,OU=organisation,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
+      "it_departments_groups_ou": "OU=departments,OU=organisation,OU=groups,OU=primeo-energie,DC=pe,DC=ch",
+      "departments_group_name_prefix": "",
+      "it_groups_prefix": "ORG_IT_",
+      "hr_groups_prefix": "ORG_HR_"
     },
     "inventory": {
       "sql hostname": "sql",

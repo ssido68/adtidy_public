@@ -8,7 +8,7 @@ $Global:Version = "1.0.0"
 
 Set-Location $PSScriptRoot
 $Global:ConfigFileName = "ad_tidy.config.json"
-
+$Global:RulesConfigFileName = "ad_tidy.rules.config.csv"
 
 #region ## global configuration variables
 $Global:Debug = $true
@@ -58,10 +58,34 @@ Global:log -text ("Start V{0}" -F $Global:Version) -Hierarchy "Main"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
 
+#region record management, init and templates
+$record_template = "" | Select-Object record_type, rule_name, target_list, result_summary, log_json
+$summary_template = "" | Select-Object retrieved, updated, created, deleted
+$target_item_template = "" | Select-Object name, action
+#endregion
 
 
 #region OU
 Global:ADTidy_Inventory_OU_sql_table_check
+
+#region record init
+$ou_record = $record_template | Select-Object *
+$ou_record.record_type = "AdTidy.inventory"
+$ou_record.rule_name = "OU"
+$ou_record.target_list = @()
+$ou_record.log_json = @()
+
+
+$ou_summary = $summary_template | Select-Object *
+$ou_summary.retrieved = 0
+$ou_summary.updated = 0
+$ou_summary.created = 0
+$ou_summary.deleted = 0
+
+$ou_record.result_summary = $ou_summary | ConvertTo-Json -Compress
+
+$ou_target_item_array = @()
+#endregion
 
 $last_update = Global_ADTidy_Iventory_OU_last_update
 
@@ -99,7 +123,6 @@ Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configuratio
 
                 }
             }
-
             "whenChanged" {
                 TRY {
                     $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
@@ -138,6 +161,7 @@ Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configuratio
 
 if (  $Organizational_units.Count -eq 0 ) {
     Global:log -text ("No Ou objects changes found" -F $Organizational_units.Count) -Hierarchy "Main:Ou:delta changes" -type warning
+
 }
 else {
     Global:log -text ("{0} Ou objects retrieved" -F $Organizational_units.Count) -Hierarchy "Main:Ou:delta changes"
@@ -145,12 +169,26 @@ else {
 
     $Organizational_units | Select-Object * | ForEach-Object {
         $this_ou = $_
-        Global:ADTidy_Inventory_OU_sql_update -Fields $this_ou
+        $this_record_item = $target_item_template | Select-Object *
+        $this_record_item.name = $this_ou.distinguishedname
+        switch ( Global:ADTidy_Inventory_OU_sql_update -Fields $this_ou) {
+            "updated" {
+                $this_record_item.action = "updated"
+                $ou_summary.updated++
+            }
+            "new" {
+                $this_record_item.action = "created"
+                $ou_summary.created++
+
+            }
+        }
+        $ou_target_item_array += $this_record_item
     }
 }
 #region deleted records detect
 $sql_current_records = Global_ADTidy_Iventory_OU_all_current_records 
 $ad_current_records = Get-ADOrganizationalUnit -filter * -Properties objectguid | Select-Object -ExpandProperty objectguid
+$ou_summary.retrieved = $ad_current_records.Count
 Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Ou:deleted detect"
 $flag_deleted = 0
 
@@ -161,13 +199,27 @@ $sql_current_records | ForEach-Object {
         $delete_record = $this_sql_record | Select-Object @{name = 'Objectguid'; expression = { $_.ad_ObjectGUID } }, record_status
         $delete_record.record_status = "Deleted"
         Global:ADTidy_Inventory_OU_sql_update -Fields $delete_record
+        $ou_summary.deleted++
         $flag_deleted = 1
+
+
+        $this_record_item = $target_item_template | Select-Object *
+        $this_record_item.name = $this_sql_record.ad_distinguishedname
+        $this_record_item.action = "deleted"
+        $ou_target_item_array += $this_record_item
+
+
     }
 }
 if ( $flag_deleted -eq 0) {
     Global:log -text ("No deleted OU record found." ) -Hierarchy "Main:OU:deleted detect" -type warning
 
 }
+
+$ou_record.result_summary = $ou_summary | ConvertTo-Json -Compress
+$ou_record.target_list = $ou_target_item_array | ConvertTo-Json -Compress
+$ou_record
+exit
 #endregion
 
     

@@ -172,7 +172,7 @@ else {
         $this_record_item = $target_item_template | Select-Object *
         $this_record_item.name = $this_ou.distinguishedname
         switch ( Global:ADTidy_Inventory_OU_sql_update -Fields $this_ou) {
-            "updated" {
+            "update" {
                 $this_record_item.action = "updated"
                 $ou_summary.updated++
             }

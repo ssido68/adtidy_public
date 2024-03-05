@@ -13,7 +13,9 @@ function Global:sql_query {
     
     # https://github.com/dataplat/dbatools/discussions/7680
     Set-DbatoolsConfig -FullName 'sql.connection.trustcert' -Value $true -Register
-
+    if ($query -match 'INSERT') {
+        $query = "{0};SELECT SCOPE_IDENTITY() as id;" -F $query
+    }
     try {
         $temp = Invoke-DbaQuery -SqlInstance $SqlInstance -Database $Database -Query $query -MessagesToOutput -EnableException 
     } 
@@ -24,7 +26,17 @@ function Global:sql_query {
         exit
     }
     Global:log -Hierarchy "function:sql_query" -text ("returned rows={0}" -F ($temp | Measure-Object).count )
-    return $temp
+    if ($query -match 'INSERT') {
+        Global:log -Hierarchy "function:sql_query" -text ("returned id='{0}'" -F $temp.id )
+        return $temp.id
+    }
+    else {
+        return $temp
+    }
+    
+    #return $temp.id
+
+
 
 }
 
@@ -1374,5 +1386,83 @@ function Global:ADTidy_Records_sql_table_check {
     }
 }
 
+function Global:ADTidy_Records_sql_update {
+    param(
+        [Parameter(Mandatory = $true)] [array]$Fields,
+        $Table_Name = "ADTidy_Records"
+    )
+
+    #region ADTidy_Inventory_Users_sql_update specific
+    $prefixed_fields = "" | Select-Object ignore
+    $varchar_field = @()
+    $ObjectGUID = $Fields.ObjectGUID
+    $Fields | Select-Object -ExcludeProperty ObjectGUID | Get-Member | Where-Object { $_.membertype -eq "NoteProperty" } | Select-Object -ExpandProperty name | ForEach-Object {
+        $this_attribute_name = $_
+        <# switch ($this_attribute_name) {
+            "record_status" { $prefixed_attribute_name = $this_attribute_name }
+            "xml_members" { $prefixed_attribute_name = $this_attribute_name }
+            default { $prefixed_attribute_name = "ad_{0}" -F $this_attribute_name }
+
+        }#>
+        $varchar_field += $this_attribute_name
+
+    }
+    Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand )  -text ( "prefixed_fields:{0}" -F $prefixed_fields | ConvertTo-Json -Compress    )
+
+    #endregion#
+
+    #region function internal definitions
+    $table = $Table_Name
+    #$sql_varchar_fields = @("entry_type", "entry_details", "user_type", "user_employeeid", "user_samaccountname", "user_guid", "execution_status_details", "execution_mode", "execution_operator_name", "execution_operator_action_timestamp", "execution_logs", "execution_last_update", "record_status")
+    #$sql_special_fields = @("entry_repeat", "entry_first_occurrence", "entry_last_occurrence", "execution_status_code")
+    #endregion
+
+    #region create INSERT statement field and value pairs, loop throuhg $Fields array matching sql_field definition
+    $sql_statement_fields = ""
+    $sql_statement_values = ""
+    $sql_update_statement = "$sql_update_statement"
+    $varchar_field | ForEach-Object {
+        $thisField = $_
+        if ( $Fields."$thisField" -ne $null ) {
+            #Global:Log -text (" + `$Fields contains attribute '{0}'" -F $thisField) -hierarchy "function:adimport_sql_update:DEBUG"
+            $sql_statement_fields = "{0} [{1}]," -F $sql_statement_fields, $thisField
+            if ($Fields."$thisField" -eq "NULL") {
+                $sql_statement_values = "{0} {1}," -F $sql_statement_values, $Fields."$thisField"
+                $sql_update_statement = "{0} [{1}]={2}," -F $sql_update_statement, $thisField, $Fields."$thisField"
+            }
+            else {
+                $sql_statement_values = "{0} '{1}'," -F $sql_statement_values, $Fields."$thisField"
+                $sql_update_statement = "{0} [{1}]='{2}'," -F $sql_update_statement, $thisField, $Fields."$thisField"
+            }
+            
+            
+        }
+        else {
+            #Global:Log -text (" ! `$Fields misses attribute '{0}'" -F $thisField) -hierarchy "function:adimport_sql_update:DEBUG"
+        }
+    }
+    #endregion
+
+
+    Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand )  -text ( "action_type = new"  )
+    $sql_statement_fields = "{0} [record_timestamp]," -F $sql_statement_fields
+    $sql_statement_values = "{0} GETDATE()," -F $sql_statement_values
+        
+    # remove last ',' from both fields and values strings
+    $sql_statement_fields = $sql_statement_fields -replace ".$"
+    $sql_statement_values = $sql_statement_values -replace ".$"
+
+    $sql_statement_insert = " INSERT INTO {0} ({1}) VALUES ({2})" -F $table, $sql_statement_fields, $sql_statement_values
+        
+    Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand )  -text ( "query:'{0}'" -F $sql_statement_insert  )
+    $insert_result = Global:sql_query -query $sql_statement_insert
+
+
+    Global:Log -text ("Inserted row id: '{0}' " -F ($insert_result | convertto-json -Compress) ) -hierarchy "function:adimport_sql_update:DEBUG"
+    return $insert_result.rowid
+ 
+
+
+}
 										
 

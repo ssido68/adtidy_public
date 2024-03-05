@@ -54,11 +54,10 @@ Global:log -text ("Start V{0}" -F $Global:Version) -Hierarchy "Main"
 
 
 #region record management, init and templates
-$record_template = "" | Select-Object record_type, rule_name, target_list, result_summary, log_json
+$record_template = "" | Select-Object record_type, rule_name, target_list, result_summary
 $summary_template = "" | Select-Object retrieved, updated, created, deleted
 $target_item_template = "" | Select-Object name, action
 #endregion
-
 
 #region OU
 Global:ADTidy_Inventory_OU_sql_table_check
@@ -68,7 +67,6 @@ $ou_record = $record_template | Select-Object *
 $ou_record.record_type = "AdTidy.inventory"
 $ou_record.rule_name = "OU"
 $ou_record.target_list = @()
-$ou_record.log_json = @()
 
 
 $ou_summary = $summary_template | Select-Object *
@@ -94,6 +92,8 @@ else {
 }
 Global:log -text ("retrieving users from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Ou"
 $Organizational_units = @()
+
+#region delta changes
 Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configurations.inventory.'OU Active Directory Attributes' -Server $global:Config.Configurations.'target domain controller' | Select-Object name, whenCreated, whenChanged, distinguishedname, objectguid, businessCategory, managedBy | Sort-Object whenChanged | ForEach-Object { 
     $this_row = $_
 
@@ -180,6 +180,7 @@ else {
         $ou_target_item_array += $this_record_item
     }
 }
+#endregion
 
 #region deleted records detect
 $sql_current_records = Global_ADTidy_Iventory_OU_all_current_records 
@@ -215,7 +216,8 @@ if ( $flag_deleted -eq 0) {
 
 $ou_record.result_summary = $ou_summary | ConvertTo-Json -Compress
 $ou_record.target_list = $ou_target_item_array | ConvertTo-Json -Compress
-$ou_record
+
+Global:ADTidy_Records_sql_update -Fields $ou_record
 
     
 #endregion
@@ -228,7 +230,6 @@ $users_record = $record_template | Select-Object *
 $users_record.record_type = "AdTidy.inventory"
 $users_record.rule_name = "users"
 $users_record.target_list = @()
-$users_record.log_json = @()
 
 
 $users_summary = $summary_template | Select-Object *
@@ -430,7 +431,8 @@ if ( $flag_deleted -eq 0) {
 
 $users_record.result_summary = $users_summary | ConvertTo-Json -Compress
 $users_record.target_list = $users_target_item_array | ConvertTo-Json -Compress
-$users_record
+
+Global:ADTidy_Records_sql_update -Fields $users_record
 #endregion
 
 #region computers
@@ -441,7 +443,6 @@ $computers_record = $record_template | Select-Object *
 $computers_record.record_type = "AdTidy.inventory"
 $computers_record.rule_name = "computers"
 $computers_record.target_list = @()
-$computers_record.log_json = @()
 
 
 $computers_summary = $summary_template | Select-Object *
@@ -593,18 +594,17 @@ if ( $flag_deleted -eq 0) {
 
 $computers_record.result_summary = $computers_summary | ConvertTo-Json -Compress
 $computers_record.target_list = $computers_target_item_array | ConvertTo-Json -Compress
-$computers_record
+Global:ADTidy_Records_sql_update -Fields $computers_record
 #endregion
-
 
 #region Groups
 Global:ADTidy_Inventory_Groups_sql_table_check
 #region record init
 $groups_record = $record_template | Select-Object *
 $groups_record.record_type = "AdTidy.inventory"
-$groups_record.rule_name = "users"
+$groups_record.rule_name = "groups"
 $groups_record.target_list = @()
-$groups_record.log_json = @()
+
 
 
 $groups_summary = $summary_template | Select-Object *
@@ -752,7 +752,7 @@ $sql_current_records | ForEach-Object {
 
         $groups_summary.deleted++
         $this_record_item = $target_item_template | Select-Object *
-        $this_record_item.name = $this_sql_record.ad_samaccountname
+        $this_record_item.name = $this_sql_record.ad_name
         $this_record_item.action = "deleted"
         $groups_target_item_array += $this_record_item
 
@@ -767,5 +767,5 @@ if ( $flag_deleted -eq 0) {
 
 $groups_record.result_summary = $groups_summary | ConvertTo-Json -Compress
 $groups_record.target_list = $groups_target_item_array | ConvertTo-Json -Compress
-$groups_record
+Global:ADTidy_Records_sql_update -Fields $groups_record
 #endregion

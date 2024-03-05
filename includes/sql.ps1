@@ -298,7 +298,7 @@ function Global:ADTidy_Inventory_Users_sql_update {
 
 
         #Global:Log -text ("Inserted row id: '{0}' " -F $insert_result.rowid) -hierarchy "function:adimport_sql_update:DEBUG"
-        #return $insert_result.rowid
+        return $action_type
     }
     #endregion
 
@@ -317,7 +317,7 @@ function Global:ADTidy_Inventory_Users_sql_update {
         $sql_statement_update = " UPDATE {0} SET {1} WHERE {2}" -F $table, $sql_update_statement, $sql_update_filter
         #Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand )  -text ( "query:'{0}'" -F $sql_statement_update  )
         Global:sql_query -query $sql_statement_update
-        return $Fields.ObjectGUID
+        return $action_type
     }
     #endregion
 
@@ -892,7 +892,8 @@ function Global:ADTidy_Inventory_Groups_sql_update {
 
 
         #Global:Log -text ("Inserted row id: '{0}' " -F $insert_result.rowid) -hierarchy "function:adimport_sql_update:DEBUG"
-        #return $insert_result.rowid
+        return $action_type
+
     }
     #endregion
 
@@ -911,7 +912,7 @@ function Global:ADTidy_Inventory_Groups_sql_update {
         $sql_statement_update = " UPDATE {0} SET {1} WHERE {2}" -F $table, $sql_update_statement, $sql_update_filter
         #Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand )  -text ( "query:'{0}'" -F $sql_statement_update  )
         Global:sql_query -query $sql_statement_update
-        return $Fields.ObjectGUID
+        return $action_type
     }
     #endregion
 
@@ -1184,7 +1185,7 @@ function Global:ADTidy_Inventory_Computers_sql_update {
 
 
         #Global:Log -text ("Inserted row id: '{0}' " -F $insert_result.rowid) -hierarchy "function:adimport_sql_update:DEBUG"
-        #return $insert_result.rowid
+        return $action_type
     }
     #endregion
 
@@ -1203,7 +1204,7 @@ function Global:ADTidy_Inventory_Computers_sql_update {
         $sql_statement_update = " UPDATE {0} SET {1} WHERE {2}" -F $table, $sql_update_statement, $sql_update_filter
         #Global:log -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand )  -text ( "query:'{0}'" -F $sql_statement_update  )
         Global:sql_query -query $sql_statement_update
-        return $Fields.ObjectGUID
+        return $action_type
     }
     #endregion
 

@@ -414,9 +414,6 @@ $sql_current_records | ForEach-Object {
         $flag_deleted = 1
 
         $users_summary.deleted++
-        $flag_deleted = 1
-
-
         $this_record_item = $target_item_template | Select-Object *
         $this_record_item.name = $this_sql_record.ad_samaccountname
         $this_record_item.action = "deleted"
@@ -430,15 +427,33 @@ if ( $flag_deleted -eq 0) {
 
 }
 #endregion
+
 $users_record.result_summary = $users_summary | ConvertTo-Json -Compress
 $users_record.target_list = $users_target_item_array | ConvertTo-Json -Compress
 $users_record
-exit
 #endregion
 
 #region computers
 Global:ADTidy_Inventory_Computers_sql_table_check
 
+#region record init
+$computers_record = $record_template | Select-Object *
+$computers_record.record_type = "AdTidy.inventory"
+$computers_record.rule_name = "computers"
+$computers_record.target_list = @()
+$computers_record.log_json = @()
+
+
+$computers_summary = $summary_template | Select-Object *
+$computers_summary.retrieved = 0
+$computers_summary.updated = 0
+$computers_summary.created = 0
+$computers_summary.deleted = 0
+
+$computers_record.result_summary = $computers_summary | ConvertTo-Json -Compress
+
+$computers_target_item_array = @()
+#endregion
 
 $last_update = Global_ADTidy_Iventory_Computers_last_update
 
@@ -527,7 +542,19 @@ else {
 
     $computers | Select-Object * -ExcludeProperty  objectclass, DNSHostName, UserPrincipalName | ForEach-Object {
         $this_computer = $_
-        Global:ADTidy_Inventory_Computers_sql_update -Fields $this_computer
+        $this_record_item = $target_item_template | Select-Object *
+        $this_record_item.name = $this_computer.samaccountname
+        switch ( Global:ADTidy_Inventory_Computers_sql_update -Fields $this_computer) {
+            "update" {
+                $this_record_item.action = "updated"
+                $computers_summary.updated++
+            }
+            "new" {
+                $this_record_item.action = "created"
+                $computers_summary.created++
+            }
+        }
+        $computers_target_item_array += $this_record_item
     }
 
 }
@@ -536,6 +563,8 @@ else {
 #region deleted records detect
 $sql_current_records = Global_ADTidy_Iventory_Computers_all_current_records 
 $ad_current_records = Get-Adcomputer -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
+$computers_summary.retrieved = $ad_current_records.Count
+
 Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Computers:deleted detect"
 $flag_deleted = 0
 
@@ -547,6 +576,13 @@ $sql_current_records | ForEach-Object {
         $delete_record.record_status = "Deleted"
         Global:ADTidy_Inventory_Computers_sql_update -Fields $delete_record
         $flag_deleted = 1
+        $computers_summary.deleted++
+        $this_record_item = $target_item_template | Select-Object *
+        $this_record_item.name = $this_sql_record.ad_samaccountname
+        $this_record_item.action = "deleted"
+        $computers_target_item_array += $this_record_item
+
+
     }
 }
 if ( $flag_deleted -eq 0) {
@@ -555,11 +591,32 @@ if ( $flag_deleted -eq 0) {
 }
 #endregion
 
+$computers_record.result_summary = $computers_summary | ConvertTo-Json -Compress
+$computers_record.target_list = $computers_target_item_array | ConvertTo-Json -Compress
+$computers_record
 #endregion
+
 
 #region Groups
 Global:ADTidy_Inventory_Groups_sql_table_check
+#region record init
+$groups_record = $record_template | Select-Object *
+$groups_record.record_type = "AdTidy.inventory"
+$groups_record.rule_name = "users"
+$groups_record.target_list = @()
+$groups_record.log_json = @()
 
+
+$groups_summary = $summary_template | Select-Object *
+$groups_summary.retrieved = 0
+$groups_summary.updated = 0
+$groups_summary.created = 0
+$groups_summary.deleted = 0
+
+$groups_record.result_summary = $groups_summary | ConvertTo-Json -Compress
+
+$groups_target_item_array = @()
+#endregion
 
 $last_update = Global_ADTidy_Iventory_Groups_last_update
 
@@ -652,7 +709,21 @@ else {
 
     $groups | Select-Object * -ExcludeProperty objectclass | ForEach-Object {
         $this_group = $_
-        Global:ADTidy_Inventory_Groups_sql_update -Fields $this_group
+        $this_record_item = $target_item_template | Select-Object *
+        $this_record_item.name = $this_group.samaccountname
+        switch ( Global:ADTidy_Inventory_Groups_sql_update -Fields $this_group) {
+            "update" {
+                $this_record_item.action = "updated"
+                $users_summary.updated++
+            }
+            "new" {
+                $this_record_item.action = "created"
+                $users_summary.created++
+            }
+        }
+        $groups_target_item_array += $this_record_item
+
+        
     }
 }
 #endregion
@@ -661,6 +732,7 @@ else {
 #region deleted records detect
 $sql_current_records = Global_ADTidy_Iventory_Groups_all_current_records 
 $ad_current_records = Get-ADGroup -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
+$groups_summary.retrieved = $ad_current_records.Count
 Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Groups:deleted detect"
 $flag_deleted = 0
 
@@ -672,6 +744,14 @@ $sql_current_records | ForEach-Object {
         $delete_record.record_status = "Deleted"
         Global:ADTidy_Inventory_Groups_sql_update -Fields $delete_record
         $flag_deleted = 1
+
+        $groups_summary.deleted++
+        $this_record_item = $target_item_template | Select-Object *
+        $this_record_item.name = $this_sql_record.ad_samaccountname
+        $this_record_item.action = "deleted"
+        $groups_target_item_array += $this_record_item
+
+
     }
 }
 if ( $flag_deleted -eq 0) {
@@ -680,4 +760,7 @@ if ( $flag_deleted -eq 0) {
 }
 #endregion
 
+$groups_record.result_summary = $groups_summary | ConvertTo-Json -Compress
+$groups_record.target_list = $groups_target_item_array | ConvertTo-Json -Compress
+$groups_record
 #endregion

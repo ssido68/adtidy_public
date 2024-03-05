@@ -3,18 +3,21 @@ Clear-Host
 $Global:Version = "1.0.0"
 # HAR3005, Primeo-Energie, 20240227
 #    gather delta users, computers, OU and groups objects from Active Directory based of last whenchanged attribute for newer records
+$Global:Version = "1.0.1"
+# HAR3005, Primeo-Energie, 20240301
+#    Added group nested membership lookup
 #endregion
 
 
-Set-Location $PSScriptRoot
-$Global:ConfigFileName = "ad_tidy.config.json"
-$Global:RulesConfigFileName = "ad_tidy.rules.config.csv"
 
 #region ## global configuration variables
 $Global:Debug = $true
 $Global:WhatIf = $false # no actual sql operation happen
 $Global:LogLocation = $PSScriptRoot
 #$Global:LogLocation = "C:\IT_Staff\Logs"
+Set-Location $PSScriptRoot
+$Global:ConfigFileName = "ad_tidy.config.json"
+
 #endregion
 
 #region ## script specific configuration
@@ -43,14 +46,6 @@ $len = (Get-Item $Global:ConfigFileName ).length / 1kb
 $mod = (Get-Item $Global:ConfigFileName ).LastWriteTime
 $global:Config = Get-Content .\$Global:ConfigFileName -Raw -ErrorAction:SilentlyContinue -WarningAction:SilentlyContinue | ConvertFrom-Json -ErrorAction:SilentlyContinue -WarningAction:SilentlyContinue
 Global:Log -text ("Json config loaded ({0}kb, modified on {1})" -f $len, $mod  ) -hierarchy ("{0}" -f ($MyInvocation.ScriptName).split("\")[($MyInvocation.ScriptName).split("\").count - 1])
-
-
-$len = (Get-Item $Global:RulesConfigFileName ).length / 1kb
-$mod = (Get-Item $Global:RulesConfigFileName ).LastWriteTime
-$global:Rules = Import-Csv .\$Global:RulesConfigFileName -ErrorAction:SilentlyContinue -WarningAction:SilentlyContinue | Select-Object *, @{name = "sort"; expression = { [int]$_."Processing order" } }
-Global:Log -text ("csv rules config loaded ( {0}kb, modified on {1}, {2} row(s) )" -f $len, $mod, ($global:Rules | Measure-Object).Count  ) -hierarchy ("{0}" -f ($MyInvocation.ScriptName).split("\")[($MyInvocation.ScriptName).split("\").count - 1])
-
-
 #endregion
 
 #region main
@@ -99,7 +94,7 @@ else {
 }
 Global:log -text ("retrieving users from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Ou"
 $Organizational_units = @()
-Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configurations.inventory.'OU Active Directory Attributes' | Select-Object name, whenCreated, whenChanged, distinguishedname, objectguid, businessCategory, managedBy | Sort-Object whenChanged | ForEach-Object { 
+Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configurations.inventory.'OU Active Directory Attributes' -Server $global:Config.Configurations.'target domain controller' | Select-Object name, whenCreated, whenChanged, distinguishedname, objectguid, businessCategory, managedBy | Sort-Object whenChanged | ForEach-Object { 
     $this_row = $_
 
     $this_calculated_row = "" | Select-Object ignore
@@ -185,9 +180,10 @@ else {
         $ou_target_item_array += $this_record_item
     }
 }
+
 #region deleted records detect
 $sql_current_records = Global_ADTidy_Iventory_OU_all_current_records 
-$ad_current_records = Get-ADOrganizationalUnit -filter * -Properties objectguid | Select-Object -ExpandProperty objectguid
+$ad_current_records = Get-ADOrganizationalUnit -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
 $ou_summary.retrieved = $ad_current_records.Count
 Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Ou:deleted detect"
 $flag_deleted = 0
@@ -215,18 +211,36 @@ if ( $flag_deleted -eq 0) {
     Global:log -text ("No deleted OU record found." ) -Hierarchy "Main:OU:deleted detect" -type warning
 
 }
+#endregion
 
 $ou_record.result_summary = $ou_summary | ConvertTo-Json -Compress
 $ou_record.target_list = $ou_target_item_array | ConvertTo-Json -Compress
 $ou_record
-
-#endregion
 
     
 #endregion
 
 #region users
 Global:ADTidy_Inventory_Users_sql_table_check
+
+#region record init
+$users_record = $record_template | Select-Object *
+$users_record.record_type = "AdTidy.inventory"
+$users_record.rule_name = "users"
+$users_record.target_list = @()
+$users_record.log_json = @()
+
+
+$users_summary = $summary_template | Select-Object *
+$users_summary.retrieved = 0
+$users_summary.updated = 0
+$users_summary.created = 0
+$users_summary.deleted = 0
+
+$users_record.result_summary = $users_summary | ConvertTo-Json -Compress
+
+$users_target_item_array = @()
+#endregion
 
 $last_update = Global_ADTidy_Iventory_Users_last_update
 
@@ -243,7 +257,7 @@ $users = @()
 
 #region delta changes
 <# PRD#>
-Get-ADUser  -properties $global:config.Configurations.inventory.'Users Active Directory Attributes' -filter $filter  | ForEach-Object { 
+Get-ADUser  -properties $global:config.Configurations.inventory.'Users Active Directory Attributes' -filter $filter  -Server $global:Config.Configurations.'target domain controller' | ForEach-Object { 
     <# DEV 
 Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
 
@@ -364,7 +378,19 @@ else {
 
     $users | Select-Object * -ExcludeProperty name, objectclass, enabled | ForEach-Object {
         $this_user = $_
-        Global:ADTidy_Inventory_Users_sql_update -Fields $this_user
+        $this_record_item = $target_item_template | Select-Object *
+        $this_record_item.name = $this_user.samaccountname
+        switch ( Global:ADTidy_Inventory_Users_sql_update -Fields $this_user) {
+            "update" {
+                $this_record_item.action = "updated"
+                $users_summary.updated++
+            }
+            "new" {
+                $this_record_item.action = "created"
+                $users_summary.created++
+            }
+        }
+        $users_target_item_array += $this_record_item
     }
 
 }
@@ -373,7 +399,8 @@ else {
 
 #region deleted records detect
 $sql_current_records = Global_ADTidy_Iventory_Users_all_current_records 
-$ad_current_records = Get-ADUser -filter * -Properties objectguid | Select-Object -ExpandProperty objectguid
+$ad_current_records = Get-ADUser -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
+$users_summary.retrieved = $ad_current_records.Count
 Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Users:deleted detect"
 $flag_deleted = 0
 
@@ -385,6 +412,17 @@ $sql_current_records | ForEach-Object {
         $delete_record.record_status = "Deleted"
         Global:ADTidy_Inventory_Users_sql_update -Fields $delete_record
         $flag_deleted = 1
+
+        $users_summary.deleted++
+        $flag_deleted = 1
+
+
+        $this_record_item = $target_item_template | Select-Object *
+        $this_record_item.name = $this_sql_record.ad_samaccountname
+        $this_record_item.action = "deleted"
+        $users_target_item_array += $this_record_item
+
+
     }
 }
 if ( $flag_deleted -eq 0) {
@@ -392,7 +430,10 @@ if ( $flag_deleted -eq 0) {
 
 }
 #endregion
-
+$users_record.result_summary = $users_summary | ConvertTo-Json -Compress
+$users_record.target_list = $users_target_item_array | ConvertTo-Json -Compress
+$users_record
+exit
 #endregion
 
 #region computers
@@ -415,7 +456,7 @@ $computers = @()
 
 #region delta changes
 <# PRD#>
-Get-ADComputer -properties $global:config.Configurations.inventory.'Computers Active Directory Attributes' -filter $filter  | ForEach-Object { 
+Get-ADComputer -properties $global:config.Configurations.inventory.'Computers Active Directory Attributes' -filter $filter  -Server $global:Config.Configurations.'target domain controller' | ForEach-Object { 
     <# DEV 
 Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
 
@@ -494,7 +535,7 @@ else {
 
 #region deleted records detect
 $sql_current_records = Global_ADTidy_Iventory_Computers_all_current_records 
-$ad_current_records = Get-Adcomputer -filter * -Properties objectguid | Select-Object -ExpandProperty objectguid
+$ad_current_records = Get-Adcomputer -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
 Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Computers:deleted detect"
 $flag_deleted = 0
 
@@ -619,7 +660,7 @@ else {
 
 #region deleted records detect
 $sql_current_records = Global_ADTidy_Iventory_Groups_all_current_records 
-$ad_current_records = Get-ADGroup -filter * -Properties objectguid | Select-Object -ExpandProperty objectguid
+$ad_current_records = Get-ADGroup -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
 Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Groups:deleted detect"
 $flag_deleted = 0
 

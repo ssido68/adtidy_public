@@ -219,7 +219,7 @@ if ( $flag_deleted -eq 0) {
 $ou_record.result_summary = $ou_summary | ConvertTo-Json -Compress
 $ou_record.target_list = $ou_target_item_array | ConvertTo-Json -Compress
 $ou_record
-exit
+
 #endregion
 
     
@@ -545,19 +545,10 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
     $this_calculated_row = "" | Select-Object ignore
 
     $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
+        
         $this_attribute = $_
         $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
         Switch ( $this_attribute ) {
-            "member" {
-                $members_array = @()
-                $this_row."$this_attribute" | ForEach-Object {
-                    $line = "" | Select-Object distinguishedname
-                    $line.distinguishedName = $_
-                    $members_array += $line
-                }
-                $this_calculated_row = $this_calculated_row | Select-Object *, "xml_members"
-                $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
-            }
             "whenChanged" {
                 TRY {
                     $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
@@ -588,6 +579,24 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
 
         }
     }
+    #region members and nested members (recursive)
+    $members_array = @()
+    Get-ADGroupMember -Identity $this_row.name | ForEach-Object {
+        $line = "" | Select-Object distinguishedname, membership
+        $line.membership = 'direct'
+        $line.distinguishedName = $_.distinguishedname
+        $members_array += $line
+    }
+    Get-ADGroupMember -Identity $this_row.name -Recursive | ForEach-Object {
+        $line = "" | Select-Object distinguishedname, membership
+        $line.membership = 'nested'
+        $line.distinguishedName = $_.distinguishedname
+        $members_array += $line
+    }
+    $this_calculated_row = $this_calculated_row | Select-Object *, "xml_members"
+    $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
+
+    #endregion
     
     $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, surname)
     $groups += $this_calculated_row

@@ -692,7 +692,12 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
         $members_array += $line
     }
     $this_calculated_row = $this_calculated_row | Select-Object *, "xml_members"
-    $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
+    if ( $members_array.count -ne 0) {
+        $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
+    }
+    else {
+        $this_calculated_row."xml_members" = $null
+    }
 
     #endregion
     
@@ -714,11 +719,11 @@ else {
         switch ( Global:ADTidy_Inventory_Groups_sql_update -Fields $this_group) {
             "update" {
                 $this_record_item.action = "updated"
-                $users_summary.updated++
+                $groups_summary.updated++
             }
             "new" {
                 $this_record_item.action = "created"
-                $users_summary.created++
+                $groups_summary.created++
             }
         }
         $groups_target_item_array += $this_record_item

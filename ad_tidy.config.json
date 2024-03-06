@@ -99,7 +99,8 @@
         "description",
         "extensionattribute1",
         "extensionattribute2"
-      ]
+      ],
+      "max missing records": 2
     }
   }
 }

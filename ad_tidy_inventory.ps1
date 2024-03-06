@@ -52,9 +52,9 @@ Global:Log -text ("Json config loaded ({0}kb, modified on {1})" -f $len, $mod  )
 Global:log -text ("Start V{0}" -F $Global:Version) -Hierarchy "Main"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
-$flag_inventory_ou = $true
-$flag_inventory_users = $true
-$flag_inventory_computers = $true
+$flag_inventory_ou = $false
+$flag_inventory_users = $false
+$flag_inventory_computers = $false
 $flag_inventory_groups = $true
 
 
@@ -344,7 +344,6 @@ if ($flag_inventory_users -eq $true ) {
     Global:ADTidy_Inventory_Users_sql_table_check
     $user_max_insert_total_reached = $false
 
-
     #region record init
     $users_record = $record_template | Select-Object *
     $users_record.record_type = "AdTidy.inventory"
@@ -394,7 +393,7 @@ if ($flag_inventory_users -eq $true ) {
         Global:log -text ("New array records='{0}'" -F $new_array_users.count) -Hierarchy "Main:Users"
     }
     else {
-        Global:log -text ("Records count can be processed in one go ({0} records, configured limit is {1}" -F $sorting_array_users.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
+        Global:log -text ("Records count can be processed in one go ({0} records, configured limit is {1})" -F $sorting_array_users.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
     }
     #endregion
     
@@ -740,6 +739,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
 #region computers
 if ($flag_inventory_computers -eq $true ) {
     Global:ADTidy_Inventory_Computers_sql_table_check
+    $computers_max_insert_total_reached = $false
 
     #region record init
     $computers_record = $record_template | Select-Object *
@@ -772,6 +772,28 @@ if ($flag_inventory_computers -eq $true ) {
     }
     Global:log -text ("retrieving computers from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Users"
 
+    #region chunking, max { $global:Config.Configurations.inventory.'max insert limit' } records at a time
+    
+    $sorting_array_computers = Get-ADComputer -filter $filter -Properties whenchanged, objectguid -Server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
+
+    if ( $sorting_array_computers.count -gt $global:Config.Configurations.inventory.'max insert limit' ) {
+        Global:log -text ("Too many Users records for single run import ({0} records, configured limit is {1})" -F $sorting_array_computers.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Computers" -type warning
+        $computers_max_insert_total_reached = $true
+
+        $chunked_computers_array = $sorting_array_computers | Sort-Object whenChanged  | Select-Object -first $global:Config.Configurations.inventory.'max insert limit'
+        
+
+        $filter_date = get-date ($chunked_computers_array | Sort-Object whenChanged -Descending | Select-Object -first 1 -ExpandProperty whenchanged) | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
+        $filter = "whenchanged -le '$filter_date'"
+        Global:log -text ("Updated filter='{0}'" -F $filter) -Hierarchy "Main:Computers"
+        $new_array_computers = Get-ADComputer -filter $filter -Properties whenchanged, objectguid -Server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
+        Global:log -text ("New array records='{0}'" -F $new_array_computers.count) -Hierarchy "Main:Computers"
+    }
+    else {
+        Global:log -text ("Records count can be processed in one go ({0} records, configured limit is {1}" -F $sorting_array_computers.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
+    }
+    #endregion
+    
     $computers = @()
 
     #region delta changes
@@ -898,7 +920,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
     #endregion
 
     #region missing records
-    if ( $sql_current_records.Count -lt $ad_current_records.Count ) {
+    if ( $sql_current_records.Count -lt $ad_current_records.Count -and $computers_max_insert_total_reached -eq $false) {
         Global:log -text ("sql_current_records.Count < ad_current_records.Count, {0} missing records in database.... " -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Computers:missing records" -type warning
         $existing_sql_objects_guid = ( $sql_current_records | Select-Object -ExpandProperty ad_objectguid )
         $computers_missing = @()
@@ -997,7 +1019,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
         }
     }
     else {
-        Global:log -text ("sql_current_records.Count = ad_current_records.Count, no missing records in database" -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Computers:missing records"
+        Global:log -text ("sql_current_records.Count({1}) = ad_current_records.Count({0}), computer_max_insert_total_reached={2}. not running missing records insert scriptblock" -F $ad_current_records.Count , $sql_current_records.Count, $computers_max_insert_total_reached ) -Hierarchy "Main:Users:missing records" -type warning
     }
     #endregion
     $computers_record.result_summary = $computers_summary | ConvertTo-Json -Compress
@@ -1009,6 +1031,8 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
 #region Groups
 if ($flag_inventory_groups -eq $true ) {
     Global:ADTidy_Inventory_Groups_sql_table_check
+    $groups_max_insert_total_reached = $false
+
     #region record init
     $groups_record = $record_template | Select-Object *
     $groups_record.record_type = "AdTidy.inventory"
@@ -1040,6 +1064,30 @@ if ($flag_inventory_groups -eq $true ) {
         $filter = "whenchanged -gt '$filter_date'"
     }
     Global:log -text ("retrieving groups from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Groups"
+
+    #region chunking, max { $global:Config.Configurations.inventory.'max insert limit' } records at a time
+    
+    $sorting_array_groups = Get-ADGroup -Properties whenchanged, objectguid -filter $filter -Server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
+
+    if ( $sorting_array_groups.count -gt $global:Config.Configurations.inventory.'max insert limit' ) {
+        Global:log -text ("Too many group records for single run import ({0} records, configured limit is {1}" -F $sorting_array_groups.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Groups" -type warning
+        $groups_max_insert_total_reached = $true
+
+        $chunked_groups_array = $sorting_array_groups | Sort-Object whenChanged  | Select-Object -first $global:Config.Configurations.inventory.'max insert limit'
+        
+
+        $filter_date = get-date ($chunked_groups_array | Sort-Object whenChanged -Descending | Select-Object -first 1 -ExpandProperty whenchanged) | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
+        $filter = "whenchanged -le '$filter_date'"
+        Global:log -text ("Updated filter='{0}'" -F $filter) -Hierarchy "Main:Groups"
+        $new_array_groups = Get-ADGroup -Filter $filter -Properties whenchanged, objectguid -server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
+        Global:log -text ("New array records='{0}'" -F $new_array_groups.count) -Hierarchy "Main:Groups"
+    }
+    else {
+        Global:log -text ("Records count can be processed in one go ({0} records, configured limit is {1})" -F $sorting_array_groups.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
+    }
+    #endregion
+
+    
     $groups = @()
 
 
@@ -1048,7 +1096,7 @@ if ($flag_inventory_groups -eq $true ) {
     Get-ADGroup -properties $global:config.Configurations.inventory.'Groups Active Directory Attributes' -filter $filter -Server $global:Config.Configurations.'target domain controller' | Sort-Object whenchanged  | ForEach-Object { 
         <# DEV 
 Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
-
+        write-host "." -NoNewline
 
         $this_row = $_
         $this_calculated_row = "" | Select-Object ignore
@@ -1183,7 +1231,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
 
 
     #region missing records
-    if ( $sql_current_records.Count -lt $ad_current_records.Count ) {
+    if ( $sql_current_records.Count -lt $ad_current_records.Count -and $groups_max_insert_total_reached -eq $false) {
         Global:log -text ("sql_current_records.Count < ad_current_records.Count, {0} missing records in database.... " -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Groups:missing records" -type warning
         $existing_sql_objects_guid = ( $sql_current_records | Select-Object -ExpandProperty ad_objectguid )
         $groups_missing = @()
@@ -1196,6 +1244,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
                 Global:log -text ("missing object guid={0}" -F $this_ad_record.guid ) -Hierarchy "Main:Groups:missing records" 
                 $filter = "objectguid -eq  '{0}'" -F $this_ad_record.guid
                 Get-ADGroup -properties $global:config.Configurations.inventory.'Groups Active Directory Attributes' -filter $filter -Server $global:Config.Configurations.'target domain controller' | ForEach-Object { 
+                    write-host "." -NoNewline
                     $this_row = $_
                     $this_calculated_row = "" | Select-Object ignore
 
@@ -1296,7 +1345,8 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
         }
     }
     else {
-        Global:log -text ("sql_current_records.Count = ad_current_records.Count, no missing records in database" -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Groups:missing records"
+        
+        Global:log -text ("sql_current_records.Count({1}) = ad_current_records.Count({0}), computer_max_insert_total_reached={2}. not running missing records insert scriptblock" -F $ad_current_records.Count , $sql_current_records.Count, $groups_max_insert_total_reached ) -Hierarchy "Main:Groups:missing records" -type warning        
     }
     #endregion
 
@@ -1304,4 +1354,6 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
     $groups_record.target_list = $groups_target_item_array | ConvertTo-Json -Compress
     Global:ADTidy_Records_sql_update -Fields $groups_record
 }
+#endregion
+
 #endregion

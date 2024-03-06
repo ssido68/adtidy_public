@@ -52,9 +52,9 @@ Global:Log -text ("Json config loaded ({0}kb, modified on {1})" -f $len, $mod  )
 Global:log -text ("Start V{0}" -F $Global:Version) -Hierarchy "Main"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
-$flag_inventory_ou = $false
-$flag_inventory_users = $false
-$flag_inventory_computers = $false
+$flag_inventory_ou = $true
+$flag_inventory_users = $true
+$flag_inventory_computers = $true
 $flag_inventory_groups = $true
 
 
@@ -99,11 +99,11 @@ if ($flag_inventory_ou -eq $true ) {
         $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
         $filter = "whenchanged -gt '$filter_date'"
     }
-    Global:log -text ("retrieving users from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Ou"
+    Global:log -text ("retrieving Organizational Units from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Ou"
     $Organizational_units = @()
 
     #region delta changes
-    Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configurations.inventory.'OU Active Directory Attributes' -Server $global:Config.Configurations.'target domain controller' | Sort-Object whenchanged | Select-Object name, whenCreated, whenChanged, distinguishedname, objectguid, businessCategory, managedBy | Sort-Object whenChanged | ForEach-Object { 
+    Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configurations.inventory.'OU Active Directory Attributes' -Server $global:Config.Configurations.'target domain controller' | Select-Object name, whenCreated, whenChanged, distinguishedname, objectguid, businessCategory, managedBy -first $global:Config.Configurations.inventory.'max insert limit' | Sort-Object whenChanged | ForEach-Object { 
         $this_row = $_
 
         $this_calculated_row = "" | Select-Object ignore
@@ -342,6 +342,8 @@ if ($flag_inventory_ou -eq $true ) {
 if ($flag_inventory_users -eq $true ) {
 
     Global:ADTidy_Inventory_Users_sql_table_check
+    $user_max_insert_total_reached = $false
+
 
     #region record init
     $users_record = $record_template | Select-Object *
@@ -372,7 +374,30 @@ if ($flag_inventory_users -eq $true ) {
         $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
         $filter = "whenchanged -gt '$filter_date'"
     }
-    Global:log -text ("retrieving users from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Users"
+    Global:log -text ("Retrieving users from AD, initial filter='{0}'" -F $filter) -Hierarchy "Main:Users"
+
+    #region chunking, max { $global:Config.Configurations.inventory.'max insert limit' } records at a time
+    
+    $sorting_array_users = Get-ADUser -Filter $filter -Properties whenchanged, objectguid -server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
+
+    if ( $sorting_array_users.count -gt $global:Config.Configurations.inventory.'max insert limit' ) {
+        Global:log -text ("Too many Users records for single run import ({0} records, configured limit is {1}" -F $sorting_array_users.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
+        $user_max_insert_total_reached = $true
+
+        $chunked_users_array = $sorting_array_users | Sort-Object whenChanged  | Select-Object -first $global:Config.Configurations.inventory.'max insert limit'
+        
+
+        $filter_date = get-date ($chunked_users_array | Sort-Object whenChanged -Descending | Select-Object -first 1 -ExpandProperty whenchanged) | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
+        $filter = "whenchanged -le '$filter_date'"
+        Global:log -text ("Updated filter='{0}'" -F $filter) -Hierarchy "Main:Users"
+        $new_array_users = Get-ADUser -Filter $filter -Properties whenchanged, objectguid -server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
+        Global:log -text ("New array records='{0}'" -F $new_array_users.count) -Hierarchy "Main:Users"
+    }
+    else {
+        Global:log -text ("Records count can be processed in one go ({0} records, configured limit is {1}" -F $sorting_array_users.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
+    }
+    #endregion
+    
     $users = @()
 
     #region delta changes
@@ -381,7 +406,7 @@ if ($flag_inventory_users -eq $true ) {
         <# DEV 
 Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
 
-
+        write-host "." -NoNewline
         $this_row = $_
         $this_calculated_row = "" | Select-Object ignore
 
@@ -490,13 +515,14 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
 
     }
 
+
     if ( $users.Count -eq 0 ) {
         Global:log -text ("No  user objects changes found" -F $users.Count) -Hierarchy "Main:Ou:delta changes" -type warning
     }
     else {
         Global:log -text ("{0} user objects retrieved" -F $users.Count) -Hierarchy "Main:Users:delta changes"
 
-        $users | Select-Object * -ExcludeProperty name, objectclass, enabled | ForEach-Object {
+        $users | Sort-Object whenChanged | Select-Object * -ExcludeProperty name, objectclass, enabled | ForEach-Object {
             $this_user = $_
             $this_record_item = $target_item_template | Select-Object *
             $this_record_item.name = $this_user.samaccountname
@@ -552,7 +578,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
 
 
     #region missing records
-    if ( $sql_current_records.Count -lt $ad_current_records.Count ) {
+    if ( $sql_current_records.Count -lt $ad_current_records.Count -and $user_max_insert_total_reached -eq $false) {
         Global:log -text ("sql_current_records.Count < ad_current_records.Count, {0} missing records in database.... " -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Users:missing records" -type warning
         $existing_sql_objects_guid = ( $sql_current_records | Select-Object -ExpandProperty ad_objectguid )
         $users_missing = @()
@@ -678,7 +704,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
         if ( $users_missing_count -eq $global:Config.Configurations.inventory.'max missing records' ) {
             Global:log -text ("Max missing records count reached ({0})" -F $global:Config.Configurations.inventory.'max missing records' ) -Hierarchy "Main:Users:missing records" -type warning
         }
-
+        
         $users_missing | ForEach-Object {
             $this_user = $_
             $this_record_item = $target_item_template | Select-Object *
@@ -700,7 +726,7 @@ Get-ADUser  -properties $global:config.Configurations.inventory.'Active Director
         }
     }
     else {
-        Global:log -text ("sql_current_records.Count = ad_current_records.Count, no missing records in database" -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Users:missing records"
+        Global:log -text ("sql_current_records.Count({1}) = ad_current_records.Count({0}), user_max_insert_total_reached={2}. not running missing records insert scriptblock" -F $ad_current_records.Count , $sql_current_records.Count, $user_max_insert_total_reached ) -Hierarchy "Main:Users:missing records" -type warning
     }
     #endregion
 

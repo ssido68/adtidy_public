@@ -100,7 +100,8 @@
         "extensionattribute1",
         "extensionattribute2"
       ],
-      "max missing records": 2
+      "max missing records": 500,
+      "max insert limit": 500
     }
   }
 }

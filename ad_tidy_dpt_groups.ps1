@@ -6,6 +6,11 @@ $Global:Version = "0.0.1"
 $Global:Version = "1.0.1"
 # HAR3005, Primeo-Energie, 20240303
 #    pre-HR/IT
+$Global:Version = "2.0.0"
+# HAR3005, Primeo-Energie, 20240307
+#   loop instead of code block per object types
+#   summary gathering in records table
+#   chunking based on configuration to avoid full dump of thousands of records
 #endregion
 
 

@@ -40,30 +40,7 @@ function Global:sql_query {
 
 }
 
-
-function Global:SQL_ADImport_All_Employees {
-    param(
-    )
-
-    $Query = "SELECT * FROM {0} WHERE ad_employeeid is not null " -F "[view_AD_Employees]"
-    
-    return Global:sql_query -query $Query
-}
-
-function Global:SQL_ADimport_Summary_reports {
-    param(
-    )
-
-    $Query = "SELECT COUNT (record_id) as amount,record_status,entry_type,user_type,execution_status_code,[execution_mode]
-        FROM (SELECT [record_id],[record_status],[entry_type],[user_type],[execution_status_code],[execution_mode] FROM [ITTool].[dbo].[ITTOOL_adimport_records] WHERE datediff(d,entry_first_occurrence ,getdate()) <1 OR datediff(d,entry_last_occurrence ,getdate()) <1 ) FILTERED
-        GROUP BY record_status,entry_type,user_type,execution_status_code,[execution_mode]"
-    
-    return Global:sql_query -query $Query
-
-}
-
-
-
+#region Users Table
 function Global:ADTidy_Inventory_Users_sql_table_check {
     param(
         $Table_Name = "ADTidy_Inventory_Users"
@@ -353,10 +330,9 @@ function Global_ADTidy_Iventory_Users_all_current_records {
 
     return Global:sql_query -query ("SELECT [ad_samaccountname],[ad_objectguid],[ad_sid] FROM [ittool].[dbo].[{0}] WHERE [record_status] = 'Current'" -F $Table_Name )
 }
+#endregion
 
-
-
-
+#region OU Table
 function Global:ADTidy_Inventory_OU_sql_table_check {
     param(
         $Table_Name = "ADTidy_Inventory_Organizational_Unit"
@@ -646,9 +622,9 @@ function Global_ADTidy_Iventory_OU_all_current_records {
 
     return Global:sql_query -query ("SELECT [ad_name],[ad_objectguid],[ad_distinguishedname] FROM [ittool].[dbo].[{0}] WHERE [record_status] = 'Current'" -F $Table_Name )
 }
+#endregion
 
-
-
+#region Groups Table
 function Global:ADTidy_Inventory_Groups_sql_table_check {
     param(
         $Table_Name = "ADTidy_Inventory_Groups"
@@ -940,8 +916,9 @@ function Global_ADTidy_Iventory_Groups_all_current_records {
 
     return Global:sql_query -query ("SELECT [ad_name],[ad_objectguid],[ad_distinguishedname] FROM [ittool].[dbo].[{0}] WHERE [record_status] = 'Current'" -F $Table_Name )
 }
+#endregion
 
-
+#region Computers Table
 function Global:ADTidy_Inventory_Computers_sql_table_check {
     param(
         $Table_Name = "ADTidy_Inventory_Computers"
@@ -1232,8 +1209,9 @@ function Global_ADTidy_Iventory_Computers_all_current_records {
 
     return Global:sql_query -query ("SELECT [ad_name],[ad_objectguid],[ad_distinguishedname] FROM [ittool].[dbo].[{0}] WHERE [record_status] = 'Current'" -F $Table_Name )
 }
+#endregion
 
-
+#region Records Table
 function Global:ADTidy_Records_sql_table_check {
     param(
         $Table_Name = "ADTidy_Records"
@@ -1385,7 +1363,6 @@ function Global:ADTidy_Records_sql_table_check {
         
     }
 }
-
 function Global:ADTidy_Records_sql_update {
     param(
         [Parameter(Mandatory = $true)] [array]$Fields,
@@ -1464,5 +1441,5 @@ function Global:ADTidy_Records_sql_update {
 
 
 }
-										
+#endregion										
 

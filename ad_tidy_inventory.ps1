@@ -60,6 +60,7 @@ $record_template = "" | Select-Object record_type, rule_name, target_list, resul
 $summary_template = "" | Select-Object database, retrieved, updated, created, deleted
 $target_item_template = "" | Select-Object name, action
 #endregion
+Global:ADTidy_Records_sql_table_check
 
 $objects_loop_config = @(
     [pscustomobject]@{

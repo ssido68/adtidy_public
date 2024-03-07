@@ -55,24 +55,16 @@ Global:Log -text ("Json config loaded ({0}kb, modified on {1})" -f $len, $mod  )
 Global:log -text ("Start V{0}" -F $Global:Version) -Hierarchy "Main"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
-$flag_inventory_ou = $false
-$flag_inventory_users = $false
-$flag_inventory_computers = $false
-$flag_inventory_groups = $true
-
-
 #region record management, init and templates
 $record_template = "" | Select-Object record_type, rule_name, target_list, result_summary
 $summary_template = "" | Select-Object database, retrieved, updated, created, deleted
 $target_item_template = "" | Select-Object name, action
 #endregion
 
-
-
 $objects_loop_config = @(
     [pscustomobject]@{
         object_type                   = 'OU'
-        enabled                       = $False
+        enabled                       = $True
         function_check_table          = "Global:ADTidy_Inventory_OU_sql_table_check"
         function_last_update          = "Global_ADTidy_Iventory_OU_last_update"
         function_current_sql_records  = "Global_ADTidy_Iventory_OU_all_current_records"
@@ -81,7 +73,7 @@ $objects_loop_config = @(
     }, 
     [pscustomobject]@{
         object_type                   = 'Users'
-        enabled                       = $false
+        enabled                       = $True
         function_check_table          = "Global:ADTidy_Inventory_Users_sql_table_check"
         function_last_update          = "Global_ADTidy_Iventory_Users_last_update"
         function_current_sql_records  = "Global_ADTidy_Iventory_Users_all_current_records"
@@ -90,7 +82,7 @@ $objects_loop_config = @(
     }, 
     [pscustomobject]@{
         object_type                   = 'Computers'
-        enabled                       = $false
+        enabled                       = $True
         function_check_table          = "Global:ADTidy_Inventory_Computers_sql_table_check"
         function_last_update          = "Global_ADTidy_Iventory_Computers_last_update"
         function_current_sql_records  = "Global_ADTidy_Iventory_Computers_all_current_records"
@@ -99,7 +91,7 @@ $objects_loop_config = @(
     }, 
     [pscustomobject]@{
         object_type                   = 'Groups'
-        enabled                       = $true
+        enabled                       = $True
         function_check_table          = "Global:ADTidy_Inventory_Groups_sql_table_check"
         function_last_update          = "Global_ADTidy_Iventory_Groups_last_update"
         function_current_sql_records  = "Global_ADTidy_Iventory_Groups_all_current_records"
@@ -488,336 +480,4 @@ $objects_loop_config | Where-Object { $_.enabled -eq $true } | ForEach-Object {
 }
 
 #endregion
-exit
-
-#region Groups
-if ($flag_inventory_groups -eq $true ) {
-    Global:ADTidy_Inventory_Groups_sql_table_check
-    $groups_max_insert_total_reached = $false
-
-    #region record init
-    $groups_record = $record_template | Select-Object *
-    $groups_record.record_type = "AdTidy.inventory"
-    $groups_record.rule_name = "groups"
-    $groups_record.target_list = @()
-
-
-
-    $groups_summary = $summary_template | Select-Object *
-    $groups_summary.database = 0
-    $groups_summary.retrieved = 0
-    $groups_summary.updated = 0
-    $groups_summary.created = 0
-    $groups_summary.deleted = 0
-
-    $groups_record.result_summary = $groups_summary | ConvertTo-Json -Compress
-
-    $groups_target_item_array = @()
-    #endregion
-
-    $last_update = Global_ADTidy_Iventory_Groups_last_update
-    if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
-        $groups_first_run = $true
-        $filter = "*"
-    }
-    else {
-        $groups_first_run = $false
-        $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
-        $filter = "whenchanged -gt '$filter_date'"
-    }
-    Global:log -text ("retrieving groups from AD, filter='{0}', first-run='{1}'" -F $filter) -Hierarchy "Main:Groups"
-
-    #region chunking, max { $global:Config.Configurations.inventory.'max insert limit' } records at a time
-    
-    $sorting_array_groups = Get-ADGroup -Properties whenchanged, objectguid -filter $filter -Server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
-
-    if ( $sorting_array_groups.count -gt $global:Config.Configurations.inventory.'max insert limit' ) {
-        Global:log -text ("Too many group records for single run import ({0} records, configured limit is {1}" -F $sorting_array_groups.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Groups" -type warning
-        $groups_max_insert_total_reached = $true
-
-        $chunked_groups_array = $sorting_array_groups | Sort-Object whenChanged  | Select-Object -first $global:Config.Configurations.inventory.'max insert limit'
-        
-
-        $filter_date = get-date ($chunked_groups_array | Sort-Object whenChanged -Descending | Select-Object -first 1 -ExpandProperty whenchanged) | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
-        $filter = "whenchanged -le '$filter_date'"
-        Global:log -text ("Updated filter='{0}'" -F $filter) -Hierarchy "Main:Groups"
-        $new_array_groups = Get-ADGroup -Filter $filter -Properties whenchanged, objectguid -server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
-        Global:log -text ("New array records='{0}'" -F $new_array_groups.count) -Hierarchy "Main:Groups"
-    }
-    else {
-        Global:log -text ("Records count can be processed in one go ({0} records, configured limit is {1})" -F $sorting_array_groups.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
-    }
-
-
-    #endregion
-
-    
-    $groups = @()
-
-
-    #region delta changes
-    <# PRD#>
-    Get-ADGroup -properties $global:config.Configurations.inventory.'Groups Active Directory Attributes' -filter $filter -Server $global:Config.Configurations.'target domain controller' | Sort-Object whenchanged  | ForEach-Object { 
-        <# DEV 
-Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
-        write-host "." -NoNewline
-
-        $this_row = $_
-        $this_calculated_row = "" | Select-Object ignore
-
-        $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
-        
-            $this_attribute = $_
-            $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
-            Switch ( $this_attribute ) {
-                "whenChanged" {
-                    TRY {
-                        $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                        $this_calculated_row."$this_attribute" = $CalulatedValue 
-                    }
-                    CATCH {
-                        $this_calculated_row."$this_attribute" = $null
-                    }
-                    #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                
-                }
-                "whenCreated" {
-                    TRY {
-                        $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                        $this_calculated_row."$this_attribute" = $CalulatedValue 
-                    }
-                    CATCH {
-                        $this_calculated_row."$this_attribute" = $null
-                    }
-                    #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                }
-                default {
-                    $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                    if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                }
-
-            }
-        }
-        #region members and nested members (recursive)
-        $members_array = @()
-        Get-ADGroupMember -Identity $this_row.name -Server $global:Config.Configurations.'target domain controller' | ForEach-Object {
-            $line = "" | Select-Object distinguishedname, membership
-            $line.membership = 'direct'
-            $line.distinguishedName = $_.distinguishedname
-            if (( $members_array | Select-Object -ExpandProperty distinguishedName ) -notcontains $_.distinguishedname ) {
-                $members_array += $line
-            }
-        }
-        Get-ADGroupMember -Identity $this_row.name -Recursive -Server $global:Config.Configurations.'target domain controller' | ForEach-Object {
-            $line = "" | Select-Object distinguishedname, membership
-            $line.membership = 'nested'
-            $line.distinguishedName = $_.distinguishedname
-            if (( $members_array | Select-Object -ExpandProperty distinguishedName ) -notcontains $_.distinguishedname ) {
-                $members_array += $line
-            }
-        }
-        $this_calculated_row = $this_calculated_row | Select-Object *, "xml_members"
-        if ( $members_array.count -ne 0) {
-            $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
-        }
-        else {
-            $this_calculated_row."xml_members" = $null
-        }
-
-        #endregion
-    
-        $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, surname)
-        $groups += $this_calculated_row
-
-    }
-
-    if ( $groups.Count -eq 0 ) {
-        Global:log -text ("no group objects changes found" -F $groups.Count) -Hierarchy "Main:Groups:delta changes" -type warning
-    }
-    else {
-        Global:log -text ("{0} group objects retrieved" -F $groups.Count) -Hierarchy "Main:Groups:delta changes"
-
-        $groups | Select-Object * -ExcludeProperty objectclass | ForEach-Object {
-            $this_group = $_
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_group.samaccountname
-            switch ( Global:ADTidy_Inventory_Groups_sql_update -Fields $this_group) {
-                "update" {
-                    $this_record_item.action = "updated"
-                    $groups_summary.updated++
-                }
-                "new" {
-                    $this_record_item.action = "created"
-                    $groups_summary.created++
-                }
-            }
-            $groups_target_item_array += $this_record_item
-
-        
-        }
-    }
-    #endregion
-
-
-    #region deleted records detect
-    $sql_current_records = Global_ADTidy_Iventory_Groups_all_current_records 
-    $ad_current_records = Get-ADGroup -filter * -Properties objectguid -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
-    $groups_summary.retrieved = $ad_current_records.Count
-    $groups_summary.database = $sql_current_records.Count
-    Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Groups:deleted detect"
-    $flag_deleted = 0
-
-    $sql_current_records | ForEach-Object {
-        $this_sql_record = $_
-        if ( $ad_current_records -notcontains $this_sql_record.ad_objectguid) {
-            Global:log -text ("Detected a deleted AD group:'{0}' " -F ($this_sql_record | Select-Object ad_samaccountname, ad_objectguid, ad_sid | ConvertTo-Json -Compress)) -Hierarchy "Main:Users:deleted detect"
-            $delete_record = $this_sql_record | Select-Object @{name = 'Objectguid'; expression = { $_.ad_ObjectGUID } }, record_status
-            $delete_record.record_status = "Deleted"
-            Global:ADTidy_Inventory_Groups_sql_update -Fields $delete_record
-            $flag_deleted = 1
-
-            $groups_summary.deleted++
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_sql_record.ad_name
-            $this_record_item.action = "deleted"
-            $groups_target_item_array += $this_record_item
-
-
-        }
-    }
-    if ( $flag_deleted -eq 0) {
-        Global:log -text ("No deleted group record found." ) -Hierarchy "Main:Groups:deleted detect" -type warning
-
-    }
-    #endregion
-
-
-    #region missing records
-    if ( $sql_current_records.Count -lt $ad_current_records.Count -and $groups_max_insert_total_reached -eq $false) {
-        Global:log -text ("sql_current_records.Count < ad_current_records.Count, {0} missing records in database.... " -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Groups:missing records" -type warning
-        $existing_sql_objects_guid = ( $sql_current_records | Select-Object -ExpandProperty ad_objectguid )
-        $groups_missing = @()
-        $groups_missing_count = 0
-        $ad_current_records | ForEach-Object {
-            $this_ad_record = $_
-            #Global:log -text ("checking guid={0}" -F $this_ad_record.guid) -Hierarchy "Main:Ou:missing records" 
-            if ( $existing_sql_objects_guid -notcontains $this_ad_record.guid -and $computers_missing_count -lt $global:Config.Configurations.inventory.'max missing records') {
-                $groups_missing_count++
-                Global:log -text ("missing object guid={0}" -F $this_ad_record.guid ) -Hierarchy "Main:Groups:missing records" 
-                $filter = "objectguid -eq  '{0}'" -F $this_ad_record.guid
-                Get-ADGroup -properties $global:config.Configurations.inventory.'Groups Active Directory Attributes' -filter $filter -Server $global:Config.Configurations.'target domain controller' | ForEach-Object { 
-                    write-host "." -NoNewline
-                    $this_row = $_
-                    $this_calculated_row = "" | Select-Object ignore
-
-                    #region members and nested members (recursive)
-                    $members_array = @()
-                    Get-ADGroupMember -Identity $this_row.name -Server $global:Config.Configurations.'target domain controller' | ForEach-Object {
-                        $line = "" | Select-Object distinguishedname, membership
-                        $line.membership = 'direct'
-                        $line.distinguishedName = $_.distinguishedname
-                        if (( $members_array | Select-Object -ExpandProperty distinguishedName ) -notcontains $_.distinguishedname ) {
-                            $members_array += $line
-                        }
-                    }
-                    Get-ADGroupMember - -Identity $this_row.name -Recursive -Server $global:Config.Configurations.'target domain controller' | ForEach-Object {
-                        $line = "" | Select-Object distinguishedname, membership
-                        $line.membership = 'nested'
-                        $line.distinguishedName = $_.distinguishedname
-                        if (( $members_array | Select-Object -ExpandProperty distinguishedName ) -notcontains $_.distinguishedname ) {
-                            $members_array += $line
-                        }
-                    }
-                    $this_calculated_row = $this_calculated_row | Select-Object *, "xml_members"
-                    if ( $members_array.count -ne 0) {
-                        $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
-                    }
-                    else {
-                        $this_calculated_row."xml_members" = $null
-                    }
-
-                    #endregion
-
-                    $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
-                        $this_attribute = $_
-                        $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
-                        Switch ( $this_attribute ) {
-                            "whenChanged" {
-                                TRY {
-                                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                                }
-                                CATCH {
-                                    $this_calculated_row."$this_attribute" = $null
-                                }
-                                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                
-                            }
-                            "whenCreated" {
-                                TRY {
-                                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                                }
-                                CATCH {
-                                    $this_calculated_row."$this_attribute" = $null
-                                }
-                                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                            }
-                            default {
-                                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                            }
-
-                        }
-
-                    }
-    
-                    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, surname, enabled, objectclass, UserPrincipalName, DNSHostName )
-                    $groups_missing += $this_calculated_row
-
-                }
-
-            }
-        
-        }
-        if ( $groups_missing_count -eq $global:Config.Configurations.inventory.'max missing records' ) {
-            Global:log -text ("Max missing records count reached ({0})" -F $global:Config.Configurations.inventory.'max missing records' ) -Hierarchy "Main:Groups:missing records" -type warning
-        }
-
-        $groups_missing | ForEach-Object {
-            $this_group = $_
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_group.SamAccountName
-            switch ( Global:ADTidy_Inventory_Groups_sql_update -Fields $this_group) {
-                "update" {
-                    $this_record_item.action = "updated"
-                    $groups_summary.updated++
-                }
-                "new" {
-                    $this_record_item.action = "created"
-                    $groups_summary.created++
-
-                }
-            }
-        
-
-            $groups_target_item_array += $this_record_item
-        }
-    }
-    else {
-        
-        Global:log -text ("sql_current_records.Count({1}) = ad_current_records.Count({0}), computer_max_insert_total_reached={2}. not running missing records insert scriptblock" -F $ad_current_records.Count , $sql_current_records.Count, $groups_max_insert_total_reached ) -Hierarchy "Main:Groups:missing records" -type warning        
-    }
-    #endregion
-
-    $groups_record.result_summary = $groups_summary | ConvertTo-Json -Compress
-    $groups_record.target_list = $groups_target_item_array | ConvertTo-Json -Compress
-    Global:ADTidy_Records_sql_update -Fields $groups_record
-}
-#endregion
-
 #endregion

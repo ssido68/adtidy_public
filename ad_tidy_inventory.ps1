@@ -6,6 +6,9 @@ $Global:Version = "1.0.0"
 $Global:Version = "1.0.1"
 # HAR3005, Primeo-Energie, 20240301
 #    Added group nested membership lookup
+$Global:Version = "1.0.2"
+# HAR3005, Primeo-Energie, 20240307
+#   handler through loop
 #endregion
 
 
@@ -65,968 +68,427 @@ $target_item_template = "" | Select-Object name, action
 #endregion
 
 
-#region OU
-if ($flag_inventory_ou -eq $true ) {
 
-    Global:ADTidy_Inventory_OU_sql_table_check
+$objects_loop_config = @(
+    [pscustomobject]@{
+        object_type                   = 'OU'
+        enabled                       = $False
+        function_check_table          = "Global:ADTidy_Inventory_OU_sql_table_check"
+        function_last_update          = "Global_ADTidy_Iventory_OU_last_update"
+        function_current_sql_records  = "Global_ADTidy_Iventory_OU_all_current_records"
+        function_active_directory_get = "Get-ADOrganizationalUnit"
+        function_sql_update           = "Global:ADTidy_Inventory_OU_sql_update"
+    }, 
+    [pscustomobject]@{
+        object_type                   = 'Users'
+        enabled                       = $false
+        function_check_table          = "Global:ADTidy_Inventory_Users_sql_table_check"
+        function_last_update          = "Global_ADTidy_Iventory_Users_last_update"
+        function_current_sql_records  = "Global_ADTidy_Iventory_Users_all_current_records"
+        function_active_directory_get = "Get-ADUser"
+        function_sql_update           = "Global:ADTidy_Inventory_Users_sql_update"
+    }, 
+    [pscustomobject]@{
+        object_type                   = 'Computers'
+        enabled                       = $false
+        function_check_table          = "Global:ADTidy_Inventory_Computers_sql_table_check"
+        function_last_update          = "Global_ADTidy_Iventory_Computers_last_update"
+        function_current_sql_records  = "Global_ADTidy_Iventory_Computers_all_current_records"
+        function_active_directory_get = "Get-ADcomputer"
+        function_sql_update           = "Global:ADTidy_Inventory_Computers_sql_update"
+    }, 
+    [pscustomobject]@{
+        object_type                   = 'Groups'
+        enabled                       = $true
+        function_check_table          = "Global:ADTidy_Inventory_Groups_sql_table_check"
+        function_last_update          = "Global_ADTidy_Iventory_Groups_last_update"
+        function_current_sql_records  = "Global_ADTidy_Iventory_Groups_all_current_records"
+        function_active_directory_get = "Get-ADGroup"
+        function_sql_update           = "Global:ADTidy_Inventory_Groups_sql_update"
+    }
+)
 
-    #region record init
-    $ou_record = $record_template | Select-Object *
-    $ou_record.record_type = "AdTidy.inventory"
-    $ou_record.rule_name = "OU"
-    $ou_record.target_list = @()
+#region script specific functions
+function Attribute_formatter {
+    # formatts input $value based on the attribute $attribute_name
+    param(
+        [Parameter(Mandatory = $true)] $attribute,
+        [Parameter(Mandatory = $true)] $value
+    )
+    Switch ( $attribute ) {
+        "accountexpires" {
+            # Users
+            $pwdLastSetRaw = [string]($value)
+            if ( $pwdLastSetRaw -eq "9223372036854775807" ) { 
+                $pwdLastSet = $null
+            }
+            else {
+                $pwdLastSet = [datetime]::FromFileTime($pwdLastSetRaw).ToString("yyyy-MM-dd HH:mm:ss") 
+                if ( $pwdLastSet -eq '1601-01-01 01:00:00' ) { $pwdLastSet = $null }
+            }
+            if ( $pwdLastSet.Length -eq 0 ) { $returned_value = "NULL" }
+            ELSE { $returned_value = "$pwdLastSet" }
 
+        }
+        "lastLogonTimestamp" {
+            # Users / Computers
+            $pwdLastSetRaw = [string]($value)
+            if ( $pwdLastSetRaw -eq "9223372036854775807" ) { 
+                $pwdLastSet = $null
+            }
+            else {
+                $pwdLastSet = [datetime]::FromFileTime($pwdLastSetRaw).ToString("yyyy-MM-dd HH:mm:ss") 
+                if ( $pwdLastSet -eq '1601-01-01 01:00:00' ) { $pwdLastSet = $null }
+            }
+            if ( $pwdLastSet.Length -eq 0 ) { $returned_value = "NULL" }
+            ELSE { $returned_value = "$pwdLastSet" }
+        }
+        "pwdLastSet" {
+            # Users
+            $pwdLastSetRaw = [string]($value)
+            if ( $pwdLastSetRaw -eq "9223372036854775807" ) { 
+                $pwdLastSet = $null
+            }
+            else {
+                $pwdLastSet = [datetime]::FromFileTime($pwdLastSetRaw).ToString("yyyy-MM-dd HH:mm:ss") 
+                if ( $pwdLastSet -eq '1601-01-01 01:00:00' ) { $pwdLastSet = $null }
+            }
+            if ( $pwdLastSet.Length -eq 0 ) { $returned_value = "NULL" }
+            ELSE { $returned_value = "$pwdLastSet" }
+        }
+        "useraccountcontrol" {
+            # Users
+            $returned_value = Global:DecodeUserAccountControl ([int][string]($value))
+        }
+        "thumbnailPhoto" {
+            # Users
+            if ( $value -ne $null) {
+                $returned_value = "Is set"
+            }
+            else {
+                $returned_value = "NULL"
+            }
+        }
+        "businesscategory" {
+            # OU
+            TRY {
+                $businesscategory_string = ""
+                $value | ForEach-Object {
+                    $businesscategory_string = "{0}{1}," -F $businesscategory_string, $_
+                }
+                # remove last ',' from string
+                $businesscategory_string = $businesscategory_string -replace ".$"
+                $returned_value = $businesscategory_string
+                if (([string]$value).length -eq 0 ) { $returned_value = "NULL" }
+            }
+            CATCH {
 
-    $ou_summary = $summary_template | Select-Object *
-    $ou_summary.database = 0
-    $ou_summary.retrieved = 0
-    $ou_summary.updated = 0
-    $ou_summary.created = 0
-    $ou_summary.deleted = 0
+            }
+        }
+        "whenChanged" {
+            TRY {
+                $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $value
+                $returned_value = $CalulatedValue 
+            }
+            CATCH {
+                $returned_value = $null
+            }
+                    
+                
+                
+        }
+        "whenCreated" {
+            TRY {
+                $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $value
+                $returned_value = $CalulatedValue 
+            }
+            CATCH {
+                $returned_value = $null
+            }
 
-    $ou_record.result_summary = $ou_summary | ConvertTo-Json -Compress
+                
+        }
+        default {
+            $returned_value = $value -replace "'", "''" 
+            if (([string]$value).length -eq 0 ) { $returned_value = "NULL" }
+        }
 
-    $ou_target_item_array = @()
+    }
+    return $returned_value
+}
+#endregion
+
+#region objects_loop_config handler
+$objects_loop_config | Where-Object { $_.enabled -eq $true } | ForEach-Object {
+    $this_iteration_config = $_
+    Global:log -text ("Starting because enabled = 'true'" -F $filter) -Hierarchy ("Main:{0}" -F $this_iteration_config.object_type)
+
+    #region database table verification
+    Global:log -text (" > checking database table..." ) -Hierarchy ("Main:{0}" -F $this_iteration_config.object_type) -type warning
+    & $this_iteration_config.function_check_table
     #endregion
 
-    $last_update = Global_ADTidy_Iventory_OU_last_update
+    #region record init
+    $record = $record_template | Select-Object *
+    $record.record_type = "AdTidy.inventory"
+    $record.rule_name = $this_iteration_config.object_type
+    $record.target_list = @()
+
+
+    $summary = $summary_template | Select-Object *
+    $summary.database = 0
+    $summary.retrieved = 0
+    $summary.updated = 0
+    $summary.created = 0
+    $summary.deleted = 0
+
+    $record.result_summary = $ou_summary | ConvertTo-Json -Compress
+
+    $target_item_array = @()
+    #endregion
+
+    #region database max whenchanged attribute
+    $last_update = & $this_iteration_config.function_last_update
 
     if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
         $filter = "*"
+        $flag_first_run = $true
     }
     else {
-    
+        $flag_first_run = $false
         $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
         $filter = "whenchanged -gt '$filter_date'"
     }
-    Global:log -text ("retrieving Organizational Units from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Ou"
-    $Organizational_units = @()
+    Global:log -text ("Retrieving records from AD using filter='{0}'" -F $filter) -Hierarchy ("Main:{0}" -F $this_iteration_config.object_type)
+    #endregion
 
     #region delta changes
-    Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configurations.inventory.'OU Active Directory Attributes' -Server $global:Config.Configurations.'target domain controller' | Select-Object name, whenCreated, whenChanged, distinguishedname, objectguid, businessCategory, managedBy -first $global:Config.Configurations.inventory.'max insert limit' | Sort-Object whenChanged | ForEach-Object { 
-        $this_row = $_
+    #region # evaluate amount of records matching delta filter
+    #& $this_iteration_config.function_active_directory_get -Filter $filter -Properties $global:Config.Configurations.inventory.attributes."$($this_iteration_config.object_type)" -Server $global:Config.Configurations.'target domain controller' | Sort-Object whenChanged | ForEach-Object { 
+    $objects_matched = & $this_iteration_config.function_active_directory_get -Filter $filter -Properties objectguid, whenChanged -Server $global:Config.Configurations.'target domain controller' | Select-Object objectguid, whenChanged
+    if ( $objects_matched.count -gt $global:Config.Configurations.inventory.'max insert limit' ) {
+        Global:log -text ("Amount of matching records ({0}) above defined limite ({1}), restricting items processed to limit" -F $objects_matched.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy ("Main:{0}:Delta" -F $this_iteration_config.object_type) -type warning
+        $objects_to_process = $objects_matched | Sort-Object whenChanged  | Select-Object -first $global:Config.Configurations.inventory.'max insert limit'
+        $flag_chunked = $true
+    }
+    else {
+        Global:log -text ("Amount of matching records ({0}) below defined limit ({1}), processing all" -F $objects_matched.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy ("Main:{0}:Missing objects" -F $this_iteration_config.object_type) 
+        $objects_to_process = $objects_matched
+        $flag_chunked = $false
+    }
+    #endregion
 
+    #region active directory attribute read for selected chunk 
+    $AD_objects = @()
+    $objects_to_process | ForEach-Object {
+        $this_object_to_process = $_
+        $filter = "objectguid -eq '{0}'" -F $this_object_to_process.objectguid
+        $this_row = & $this_iteration_config.function_active_directory_get -Filter $filter -Properties $global:Config.Configurations.inventory.attributes."$($this_iteration_config.object_type)" -Server $global:Config.Configurations.'target domain controller' | Select-Object $global:Config.Configurations.inventory.attributes."$($this_iteration_config.object_type)"
         $this_calculated_row = "" | Select-Object ignore
 
         $this_row | Get-Member | Where-Object { $_.membertype -eq "NoteProperty" } | Select-Object -ExpandProperty name | ForEach-Object {
             $this_attribute = $_
             $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
-            Switch ( $this_attribute ) {
-                "businesscategory" {
-                    TRY {
-                        $businesscategory_string = ""
-                        $this_row."$this_attribute" | ForEach-Object {
-                            $businesscategory_string = "{0}{1}," -F $businesscategory_string, $_
-                        }
-                        # remove last ',' from string
-                        $businesscategory_string = $businesscategory_string -replace ".$"
-                        $this_calculated_row."$this_attribute" = $businesscategory_string
-                        if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                    }
-                    CATCH {
-
-                    }
-                }
-                "whenChanged" {
-                    TRY {
-                        $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                        $this_calculated_row."$this_attribute" = $CalulatedValue 
-                    }
-                    CATCH {
-                        $this_calculated_row."$this_attribute" = $null
-                    }
-                    #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                
-                }
-                "whenCreated" {
-                    TRY {
-                        $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                        $this_calculated_row."$this_attribute" = $CalulatedValue 
-                    }
-                    CATCH {
-                        $this_calculated_row."$this_attribute" = $null
-                    }
-                    #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                }
-                default {
-                    $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                    if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                }
-
+            if ( $this_row."$this_attribute" -eq $null) {
+                $this_calculated_row."$this_attribute" = "NULL"    
+            }
+            else {
+                $this_calculated_row."$this_attribute" = Attribute_formatter -attribute $this_attribute -value $this_row."$this_attribute"
             }
         }
-    
+        
+        if ( $this_iteration_config.object_type -eq "Groups") {
+            #region members and nested members (recursive)
+            Global:log -text ("Direct..." -F $filter) -Hierarchy ("Main:{0}:Delta:Members" -F $this_iteration_config.object_type) 
+            $members_array = @()
+            Get-ADGroupMember -Identity $this_row.name -Server $global:Config.Configurations.'target domain controller' | ForEach-Object {
+                $line = "" | Select-Object distinguishedname, membership
+                $line.membership = 'direct'
+                $line.distinguishedName = $_.distinguishedname
+                if (( $members_array | Select-Object -ExpandProperty distinguishedName ) -notcontains $_.distinguishedname ) {
+                    $members_array += $line
+                }
+            }
+            Global:log -text ("Nested..." -F $filter) -Hierarchy ("Main:{0}:Delta:Members" -F $this_iteration_config.object_type) 
+            Get-ADGroupMember -Identity $this_row.name -Recursive -Server $global:Config.Configurations.'target domain controller' | ForEach-Object {
+                $line = "" | Select-Object distinguishedname, membership
+                $line.membership = 'nested'
+                $line.distinguishedName = $_.distinguishedname
+                if (( $members_array | Select-Object -ExpandProperty distinguishedName ) -notcontains $_.distinguishedname ) {
+                    $members_array += $line
+                }
+            }
+            $this_calculated_row = $this_calculated_row | Select-Object *, "xml_members"
+            if ( $members_array.count -ne 0) {
+                $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
+            }
+            else {
+                $this_calculated_row."xml_members" = $null
+            }
+
+            #endregion
+        }
+
         $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore)
-        $Organizational_units += $this_calculated_row
 
-    }
-
-    if (  $Organizational_units.Count -eq 0 ) {
-        Global:log -text ("No Ou objects changes found" -F $Organizational_units.Count) -Hierarchy "Main:Ou:delta changes" -type warning
-
-    }
-    else {
-        Global:log -text ("{0} Ou objects retrieved" -F $Organizational_units.Count) -Hierarchy "Main:Ou:delta changes"
-
-
-        $Organizational_units | Sort-Object whenchanged | ForEach-Object {
-            $this_ou = $_
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_ou.distinguishedname
-            switch ( Global:ADTidy_Inventory_OU_sql_update -Fields $this_ou) {
-                "update" {
-                    $this_record_item.action = "updated"
-                    $ou_summary.updated++
-                }
-                "new" {
-                    $this_record_item.action = "created"
-                    $ou_summary.created++
-
-                }
-            }
-            $ou_target_item_array += $this_record_item
+        $this_record_item = $target_item_template | Select-Object *
+        switch ($this_iteration_config.object_type) {
+            "OU" { $this_record_item.name = $this_calculated_row.distinguishedname }
+            default { $this_record_item.name = $this_calculated_row.samaccountname }
         }
+        
+        switch ( & $this_iteration_config.function_sql_update -Fields $this_calculated_row) {
+            "update" {
+                $this_record_item.action = "updated"
+                $summary.updated++
+            }
+            "new" {
+                $this_record_item.action = "created"
+                $summary.created++
+
+            }
+        }
+        $target_item_array += $this_record_item
     }
+    #endregion
     #endregion
 
     #region deleted records detect
-    $sql_current_records = Global_ADTidy_Iventory_OU_all_current_records 
-    $ad_current_records = Get-ADOrganizationalUnit -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
-    $ou_summary.retrieved = $ad_current_records.Count
-    $ou_summary.database = $sql_current_records.Count
-    Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Ou:deleted detect"
-    $flag_deleted = 0
+    Global:log -text (" > retrieving current SQL records..." ) -Hierarchy ("Main:{0}:deleted records" -F $this_iteration_config.object_type)
 
+    $sql_current_records = & $this_iteration_config.function_current_sql_records
+    $ad_current_records = & $this_iteration_config.function_active_directory_get -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
+    $summary.retrieved = $ad_current_records.Count
+    $summary.database = $sql_current_records.Count
+    Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy ("Main:{0}:deleted records" -F $this_iteration_config.object_type)
+
+    $flag_object_deleted = $false
     $sql_current_records | ForEach-Object {
         $this_sql_record = $_
         if ( $ad_current_records -notcontains $this_sql_record.ad_objectguid) {
-            Global:log -text ("Detected a deleted OU:'{0}' " -F ($this_sql_record | Select-Object ad_name, ad_objectguid, ad_dinstinguishedname | ConvertTo-Json -Compress)) -Hierarchy "Main:OU:deleted detect"
+            Global:log -text ("Detected a deleted object:'{0}' " -F ($this_sql_record | Select-Object ad_name, ad_objectguid, ad_dinstinguishedname | ConvertTo-Json -Compress)) -Hierarchy ("Main:{0}:deleted records" -F $this_iteration_config.object_type)
             $delete_record = $this_sql_record | Select-Object @{name = 'Objectguid'; expression = { $_.ad_ObjectGUID } }, record_status
             $delete_record.record_status = "Deleted"
-            Global:ADTidy_Inventory_OU_sql_update -Fields $delete_record
-            $ou_summary.deleted++
-            $flag_deleted = 1
-
+            & $this_iteration_config.function_sql_update -Fields $delete_record
+            $summary.deleted++
+            $flag_object_deleted = $true
 
             $this_record_item = $target_item_template | Select-Object *
             $this_record_item.name = $this_sql_record.ad_distinguishedname
             $this_record_item.action = "deleted"
-            $ou_target_item_array += $this_record_item
+            $target_item_array += $this_record_item
 
 
         }
     }
-    if ( $flag_deleted -eq 0) {
-        Global:log -text ("No deleted OU record found." ) -Hierarchy "Main:OU:deleted detect" -type warning
+    if ( $flag_object_deleted -eq $false) {
+        Global:log -text ("No deleted record found." ) -Hierarchy ("Main:{0}:deleted records" -F $this_iteration_config.object_type) -type warning
 
     }
     #endregion
 
     #region missing records
-    if ( $sql_current_records.Count -lt $ad_current_records.Count ) {
-        Global:log -text ("sql_current_records.Count < ad_current_records.Count, {0} missing records in database.... " -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Ou:missing records" -type warning
-        $existing_sql_objects_guid = ( $sql_current_records | Select-Object -ExpandProperty ad_objectguid )
-        $Organizational_units_missing = @()
-        $Organizational_units_missing_count = 0
-        $ad_current_records | ForEach-Object {
-            $this_ad_record = $_
-            #Global:log -text ("checking guid={0}" -F $this_ad_record.guid) -Hierarchy "Main:Ou:missing records" 
-            if ( $existing_sql_objects_guid -notcontains $this_ad_record.guid -and $Organizational_units_missing_count -lt $global:Config.Configurations.inventory.'max missing records') {
-                $Organizational_units_missing_count++
-                Global:log -text ("missing object guid={0}" -F $this_ad_record.guid, $this_ad_record.distinguishedName ) -Hierarchy "Main:Ou:missing records" 
-                $filter = "objectguid -eq  '{0}'" -F $this_ad_record.guid
-                Get-ADOrganizationalUnit -Filter $filter -Properties $global:Config.Configurations.inventory.'OU Active Directory Attributes' -Server $global:Config.Configurations.'target domain controller' | Sort-Object whenchanged | Select-Object name, whenCreated, whenChanged, distinguishedname, objectguid, businessCategory, managedBy | ForEach-Object { 
-                    $this_row = $_
-
+    if ( $flag_chunked -eq $false) {
+        if ( $sql_current_records.Count -lt $ad_current_records.Count ) {
+            Global:log -text ("sql_current_records.Count < ad_current_records.Count, {0} missing records in database.... " -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy ("Main:{0}:Delta" -F $this_iteration_config.object_type) -type warning 
+            $existing_sql_objects_guid = ( $sql_current_records | Select-Object -ExpandProperty ad_objectguid )
+            $Organizational_units_missing = @()
+            $Organizational_units_missing_count = 0
+            $ad_current_records | ForEach-Object {
+                $this_ad_record = $_
+                if ( $existing_sql_objects_guid -notcontains $this_ad_record.guid -and $Organizational_units_missing_count -lt $global:Config.Configurations.inventory.'max missing records') {
+                    $Organizational_units_missing_count++
+                    Global:log -text ("missing object guid={0}" -F $this_ad_record.guid, $this_ad_record.distinguishedName ) -Hierarchy ("Main:{0}:Delta" -F $this_iteration_config.object_type)
+                    $filter = "objectguid -eq  '{0}'" -F $this_ad_record.guid
+                    $this_row = & $this_iteration_config.function_active_directory_get -Filter $filter -Properties $global:Config.Configurations.inventory.attributes."$($this_iteration_config.object_type)" -Server $global:Config.Configurations.'target domain controller' | Select-Object $global:Config.Configurations.inventory.attributes."$($this_iteration_config.object_type)"
                     $this_calculated_row = "" | Select-Object ignore
 
                     $this_row | Get-Member | Where-Object { $_.membertype -eq "NoteProperty" } | Select-Object -ExpandProperty name | ForEach-Object {
                         $this_attribute = $_
                         $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
-                        Switch ( $this_attribute ) {
-                            "businesscategory" {
-                                TRY {
-                                    $businesscategory_string = ""
-                                    $this_row."$this_attribute" | ForEach-Object {
-                                        $businesscategory_string = "{0}{1}," -F $businesscategory_string, $_
-                                    }
-                                    # remove last ',' from string
-                                    $businesscategory_string = $businesscategory_string -replace ".$"
-                                    $this_calculated_row."$this_attribute" = $businesscategory_string
-                                    if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                                }
-                                CATCH {
-
-                                }
-                            }
-                            "whenChanged" {
-                                TRY {
-                                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                                }
-                                CATCH {
-                                    $this_calculated_row."$this_attribute" = $null
-                                }
-                                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                
-                            }
-                            "whenCreated" {
-                                TRY {
-                                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                                }
-                                CATCH {
-                                    $this_calculated_row."$this_attribute" = $null
-                                }
-                                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                            }
-                            default {
-                                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                            }
-
-                        }
-                    }
-    
-                    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore)
-                    $Organizational_units_missing += $this_calculated_row
-
-                }
-
-            }
-        
-        }
-        if ( $Organizational_units_missing_count -eq $global:Config.Configurations.inventory.'max missing records' ) {
-            Global:log -text ("Max missing records count reached ({0})" -F $global:Config.Configurations.inventory.'max missing records' ) -Hierarchy "Main:Ou:missing records" -type warning
-        }
-
-    
-        $Organizational_units_missing | ForEach-Object {
-            $this_ou = $_
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_ou.distinguishedname
-            switch ( Global:ADTidy_Inventory_OU_sql_update -Fields $this_ou) {
-                "update" {
-                    $this_record_item.action = "updated"
-                    $ou_summary.updated++
-                }
-                "new" {
-                    $this_record_item.action = "created"
-                    $ou_summary.created++
-
-                }
-            }
-            $ou_summary.database++
-
-            $ou_target_item_array += $this_record_item
-        }
-
-    }
-    else {
-        Global:log -text ("sql_current_records.Count = ad_current_records.Count, no missing records in database" -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Ou:missing records"
-    }
-    #endregion
-
-    $ou_record.result_summary = $ou_summary | ConvertTo-Json -Compress
-    $ou_record.target_list = $ou_target_item_array | ConvertTo-Json -Compress
-
-    Global:ADTidy_Records_sql_update -Fields $ou_record
-}
-#endregion
-
-#region users
-if ($flag_inventory_users -eq $true ) {
-
-    Global:ADTidy_Inventory_Users_sql_table_check
-    $user_max_insert_total_reached = $false
-
-    #region record init
-    $users_record = $record_template | Select-Object *
-    $users_record.record_type = "AdTidy.inventory"
-    $users_record.rule_name = "users"
-    $users_record.target_list = @()
-
-
-    $users_summary = $summary_template | Select-Object *
-    $users_summary.database = 0
-    $users_summary.retrieved = 0
-    $users_summary.updated = 0
-    $users_summary.created = 0
-    $users_summary.deleted = 0
-
-    $users_record.result_summary = $users_summary | ConvertTo-Json -Compress
-
-    $users_target_item_array = @()
-    #endregion
-
-    $last_update = Global_ADTidy_Iventory_Users_last_update
-
-    if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
-        $filter = "*"
-    }
-    else {
-    
-        $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
-        $filter = "whenchanged -gt '$filter_date'"
-    }
-    Global:log -text ("Retrieving users from AD, initial filter='{0}'" -F $filter) -Hierarchy "Main:Users"
-
-    #region chunking, max { $global:Config.Configurations.inventory.'max insert limit' } records at a time
-    
-    $sorting_array_users = Get-ADUser -Filter $filter -Properties whenchanged, objectguid -server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
-
-    if ( $sorting_array_users.count -gt $global:Config.Configurations.inventory.'max insert limit' ) {
-        Global:log -text ("Too many Users records for single run import ({0} records, configured limit is {1}" -F $sorting_array_users.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
-        $user_max_insert_total_reached = $true
-
-        $chunked_users_array = $sorting_array_users | Sort-Object whenChanged  | Select-Object -first $global:Config.Configurations.inventory.'max insert limit'
-        
-
-        $filter_date = get-date ($chunked_users_array | Sort-Object whenChanged -Descending | Select-Object -first 1 -ExpandProperty whenchanged) | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
-        $filter = "whenchanged -le '$filter_date'"
-        Global:log -text ("Updated filter='{0}'" -F $filter) -Hierarchy "Main:Users"
-        $new_array_users = Get-ADUser -Filter $filter -Properties whenchanged, objectguid -server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
-        Global:log -text ("New array records='{0}'" -F $new_array_users.count) -Hierarchy "Main:Users"
-    }
-    else {
-        Global:log -text ("Records count can be processed in one go ({0} records, configured limit is {1})" -F $sorting_array_users.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
-    }
-    #endregion
-    
-    $users = @()
-
-    #region delta changes
-    <# PRD#>
-    Get-ADUser  -properties $global:config.Configurations.inventory.'Users Active Directory Attributes' -filter $filter  -Server $global:Config.Configurations.'target domain controller' | ForEach-Object { 
-        <# DEV 
-Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
-
-        write-host "." -NoNewline
-        $this_row = $_
-        $this_calculated_row = "" | Select-Object ignore
-
-        $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
-            $this_attribute = $_
-            $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
-            Switch ( $this_attribute ) {
-                "accountexpires" {
-                    $AccountExpiresRaw = [string]($this_row."$this_attribute")
-                    if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
-                        $AccountExpires = $null
-                    }
-                    else {
-                        $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                        if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
-                    }
-                    if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                    ELSE { $CalulatedValue = "$AccountExpires" }
-                           
-                    $this_calculated_row."$this_attribute" = $CalulatedValue
-
-                }
-                "lastLogonTimestamp" {
-                    $AccountExpiresRaw = [string]($this_row."$this_attribute")
-                    if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
-                        $AccountExpires = $null
-                    }
-                    else {
-                        $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                        if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
-                    }
-                    if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                    ELSE { $CalulatedValue = "$AccountExpires" }
-                           
-                    $this_calculated_row."$this_attribute" = $CalulatedValue
-
-                }
-                "pwdLastSet" {
-                    $pwdLastSetRaw = [string]($this_row."$this_attribute")
-                    if ( $pwdLastSetRaw -eq "9223372036854775807" ) { 
-                        $pwdLastSet = $null
-                    }
-                    else {
-                        $pwdLastSet = [datetime]::FromFileTime($pwdLastSetRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                        if ( $pwdLastSet -eq '1601-01-01 01:00:00' ) { $pwdLastSet = $null }
-                    }
-                    if ( $pwdLastSet.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                    ELSE { $CalulatedValue = "$pwdLastSet" }
-                           
-
-                    $this_calculated_row."$this_attribute" = $CalulatedValue
-                
-                }
-                "useraccountcontrol" {
-                    #write-host "> useraccountcontrol"
-                    $CalulatedValue = Global:DecodeUserAccountControl ([int][string]($this_row."$this_attribute"))
-                    #$CalulatedValue = "'$CalulatedValue'"
-                    $this_calculated_row."$this_attribute" = $CalulatedValue
-                }
-                "thumbnailPhoto" {
-                    if ( 0) {
-                        #Write-Host "thumbnailPhoto"
-                            
-                        if ( $ThisFieldValue -ne $null) {
-                            $CalulatedValue = "Is set"
+                        if ( $this_row."$this_attribute" -eq $null) {
+                            $this_calculated_row."$this_attribute" = "NULL"    
                         }
                         else {
-                            $CalulatedValue = "NULL"
-                        }
-                        #Write-Host "value:$ThisFieldValue"
-                    }
-                }
-                "whenChanged" {
-                    TRY {
-                        $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                        $this_calculated_row."$this_attribute" = $CalulatedValue 
-                    }
-                    CATCH {
-                        $this_calculated_row."$this_attribute" = $null
-                    }
-                    #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                
-                }
-                "whenCreated" {
-                    TRY {
-                        $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                        $this_calculated_row."$this_attribute" = $CalulatedValue 
-                    }
-                    CATCH {
-                        $this_calculated_row."$this_attribute" = $null
-                    }
-                    #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                }
-                default {
-                    $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                    if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                }
-
-            }
-        }
-    
-        $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, surname)
-        $users += $this_calculated_row
-
-    }
-
-
-    if ( $users.Count -eq 0 ) {
-        Global:log -text ("No  user objects changes found" -F $users.Count) -Hierarchy "Main:Ou:delta changes" -type warning
-    }
-    else {
-        Global:log -text ("{0} user objects retrieved" -F $users.Count) -Hierarchy "Main:Users:delta changes"
-
-        $users | Sort-Object whenChanged | Select-Object * -ExcludeProperty name, objectclass, enabled | ForEach-Object {
-            $this_user = $_
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_user.samaccountname
-            switch ( Global:ADTidy_Inventory_Users_sql_update -Fields $this_user) {
-                "update" {
-                    $this_record_item.action = "updated"
-                    $users_summary.updated++
-                }
-                "new" {
-                    $this_record_item.action = "created"
-                    $users_summary.created++
-                }
-            }
-            $users_target_item_array += $this_record_item
-        }
-
-    }
-
-    #endregion
-
-    #region deleted records detect
-    $sql_current_records = Global_ADTidy_Iventory_Users_all_current_records 
-    $ad_current_records = Get-ADUser -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
-    $users_summary.retrieved = $ad_current_records.Count
-    $users_summary.database = $sql_current_records.Count
-
-    Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Users:deleted detect"
-    $flag_deleted = 0
-
-    $sql_current_records | ForEach-Object {
-        $this_sql_record = $_
-        if ( $ad_current_records -notcontains $this_sql_record.ad_objectguid) {
-            Global:log -text ("Detected a deleted AD account:'{0}' " -F ($this_sql_record | Select-Object ad_samaccountname, ad_objectguid, ad_sid | ConvertTo-Json -Compress)) -Hierarchy "Main:Users:deleted detect"
-            $delete_record = $this_sql_record | Select-Object @{name = 'Objectguid'; expression = { $_.ad_ObjectGUID } }, record_status
-            $delete_record.record_status = "Deleted"
-            Global:ADTidy_Inventory_Users_sql_update -Fields $delete_record
-            $flag_deleted = 1
-
-            $users_summary.deleted++
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_sql_record.ad_samaccountname
-            $this_record_item.action = "deleted"
-            $users_target_item_array += $this_record_item
-
-
-        }
-    }
-    if ( $flag_deleted -eq 0) {
-        Global:log -text ("No deleted user record found." ) -Hierarchy "Main:Users:deleted detect" -type warning
-
-    }
-    #endregion
-
-
-    #region missing records
-    if ( $sql_current_records.Count -lt $ad_current_records.Count -and $user_max_insert_total_reached -eq $false) {
-        Global:log -text ("sql_current_records.Count < ad_current_records.Count, {0} missing records in database.... " -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Users:missing records" -type warning
-        $existing_sql_objects_guid = ( $sql_current_records | Select-Object -ExpandProperty ad_objectguid )
-        $users_missing = @()
-        $users_missing_count = 0
-        $ad_current_records | ForEach-Object {
-            $this_ad_record = $_
-            #Global:log -text ("checking guid={0}" -F $this_ad_record.guid) -Hierarchy "Main:Ou:missing records" 
-            if ( $existing_sql_objects_guid -notcontains $this_ad_record.guid -and $users_missing_count -lt $global:Config.Configurations.inventory.'max missing records') {
-                $users_missing_count++
-                Global:log -text ("missing object guid={0}" -F $this_ad_record.guid ) -Hierarchy "Main:Ou:missing records" 
-                $filter = "objectguid -eq  '{0}'" -F $this_ad_record.guid
-                Get-ADUser  -properties $global:config.Configurations.inventory.'Users Active Directory Attributes' -filter $filter  -Server $global:Config.Configurations.'target domain controller' | ForEach-Object { 
-                    $this_row = $_
-                    $this_calculated_row = "" | Select-Object ignore
-                    $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
-                        $this_attribute = $_
-                        $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
-                        Switch ( $this_attribute ) {
-                            "accountexpires" {
-                                $AccountExpiresRaw = [string]($this_row."$this_attribute")
-                                if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
-                                    $AccountExpires = $null
-                                }
-                                else {
-                                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                                    if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
-                                }
-                                if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                                ELSE { $CalulatedValue = "$AccountExpires" }
-                           
-                                $this_calculated_row."$this_attribute" = $CalulatedValue
-
-                            }
-                            "lastLogonTimestamp" {
-                                $AccountExpiresRaw = [string]($this_row."$this_attribute")
-                                if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
-                                    $AccountExpires = $null
-                                }
-                                else {
-                                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                                    if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
-                                }
-                                if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                                ELSE { $CalulatedValue = "$AccountExpires" }
-                           
-                                $this_calculated_row."$this_attribute" = $CalulatedValue
-
-                            }
-                            "pwdLastSet" {
-                                $pwdLastSetRaw = [string]($this_row."$this_attribute")
-                                if ( $pwdLastSetRaw -eq "9223372036854775807" ) { 
-                                    $pwdLastSet = $null
-                                }
-                                else {
-                                    $pwdLastSet = [datetime]::FromFileTime($pwdLastSetRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                                    if ( $pwdLastSet -eq '1601-01-01 01:00:00' ) { $pwdLastSet = $null }
-                                }
-                                if ( $pwdLastSet.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                                ELSE { $CalulatedValue = "$pwdLastSet" }
-                           
-
-                                $this_calculated_row."$this_attribute" = $CalulatedValue
-                
-                            }
-                            "useraccountcontrol" {
-                                #write-host "> useraccountcontrol"
-                                $CalulatedValue = Global:DecodeUserAccountControl ([int][string]($this_row."$this_attribute"))
-                                #$CalulatedValue = "'$CalulatedValue'"
-                                $this_calculated_row."$this_attribute" = $CalulatedValue
-                            }
-                            "thumbnailPhoto" {
-                                if ( 0) {
-                                    #Write-Host "thumbnailPhoto"
-                            
-                                    if ( $ThisFieldValue -ne $null) {
-                                        $CalulatedValue = "Is set"
-                                    }
-                                    else {
-                                        $CalulatedValue = "NULL"
-                                    }
-                                    #Write-Host "value:$ThisFieldValue"
-                                }
-                            }
-                            "whenChanged" {
-                                TRY {
-                                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                                }
-                                CATCH {
-                                    $this_calculated_row."$this_attribute" = $null
-                                }
-                                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                
-                            }
-                            "whenCreated" {
-                                TRY {
-                                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                                }
-                                CATCH {
-                                    $this_calculated_row."$this_attribute" = $null
-                                }
-                                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                            }
-                            default {
-                                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                            }
-
+                            $this_calculated_row."$this_attribute" = Attribute_formatter -attribute $this_attribute -value $this_row."$this_attribute"
                         }
                     }
     
-                    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, surname, enabled, objectclass, name)
-                    $users_missing += $this_calculated_row
+                    if ( $this_iteration_config.object_type -eq "Groups") {
+                        #region members and nested members (recursive)
+                        Global:log -text ("Direct..." -F $filter) -Hierarchy ("Main:{0}:Delta:Members" -F $this_iteration_config.object_type) 
+                        $members_array = @()
+                        Get-ADGroupMember -Identity $this_row.name -Server $global:Config.Configurations.'target domain controller' | ForEach-Object {
+                            $line = "" | Select-Object distinguishedname, membership
+                            $line.membership = 'direct'
+                            $line.distinguishedName = $_.distinguishedname
+                            if (( $members_array | Select-Object -ExpandProperty distinguishedName ) -notcontains $_.distinguishedname ) {
+                                $members_array += $line
+                            }
+                        }
+                        Global:log -text ("Nested..." -F $filter) -Hierarchy ("Main:{0}:Delta:Members" -F $this_iteration_config.object_type) 
+                        Get-ADGroupMember -Identity $this_row.name -Recursive -Server $global:Config.Configurations.'target domain controller' | ForEach-Object {
+                            $line = "" | Select-Object distinguishedname, membership
+                            $line.membership = 'nested'
+                            $line.distinguishedName = $_.distinguishedname
+                            if (( $members_array | Select-Object -ExpandProperty distinguishedName ) -notcontains $_.distinguishedname ) {
+                                $members_array += $line
+                            }
+                        }
+                        $this_calculated_row = $this_calculated_row | Select-Object *, "xml_members"
+                        if ( $members_array.count -ne 0) {
+                            $this_calculated_row."xml_members" = Global:ConvertTo-SimplifiedXML -InputObject $members_array -RootNodeName "Members" -NodeName "Member"
+                        }
+                        else {
+                            $this_calculated_row."xml_members" = $null
+                        }
 
+                        #endregion
+                    }
+                    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore)
+
+                    $this_record_item = $target_item_template | Select-Object *
+                    switch ($this_iteration_config.object_type) {
+                        "OU" { $this_record_item.name = $this_calculated_row.distinguishedname }
+                        default { $this_record_item.name = $this_calculated_row.samaccountname }
+                    }
+        
+                    switch ( & $this_iteration_config.function_sql_update -Fields $this_calculated_row) {
+                        "update" {
+                            $this_record_item.action = "updated"
+                            $summary.updated++
+                        }
+                        "new" {
+                            $this_record_item.action = "created"
+                            $summary.created++
+
+                        }
+                    }
+                    $target_item_array += $this_record_item           
                 }
+        
+
 
             }
+        }   
+        else {
         
-        }
-        if ( $users_missing_count -eq $global:Config.Configurations.inventory.'max missing records' ) {
-            Global:log -text ("Max missing records count reached ({0})" -F $global:Config.Configurations.inventory.'max missing records' ) -Hierarchy "Main:Users:missing records" -type warning
-        }
-        
-        $users_missing | ForEach-Object {
-            $this_user = $_
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_user.SamAccountName
-            switch ( Global:ADTidy_Inventory_Users_sql_update -Fields $this_user) {
-                "update" {
-                    $this_record_item.action = "updated"
-                    $users_summary.updated++
-                }
-                "new" {
-                    $this_record_item.action = "created"
-                    $users_summary.created++
-
-                }
-            }
-        
-
-            $users_target_item_array += $this_record_item
+            Global:log -text ("sql_current_records.Count = ad_current_records.Count, no missing records in database" -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy ("Main:{0}:Missing objects" -F $this_iteration_config.object_type) 
         }
     }
     else {
-        Global:log -text ("sql_current_records.Count({1}) = ad_current_records.Count({0}), user_max_insert_total_reached={2}. not running missing records insert scriptblock" -F $ad_current_records.Count , $sql_current_records.Count, $user_max_insert_total_reached ) -Hierarchy "Main:Users:missing records" -type warning
+        Global:log -text (" flag_checked -eq 'true', missing objects skipped." ) -Hierarchy ("Main:{0}:Missing objects" -F $this_iteration_config.object_type)         
     }
     #endregion
 
-    $users_record.result_summary = $users_summary | ConvertTo-Json -Compress
-    $users_record.target_list = $users_target_item_array | ConvertTo-Json -Compress
+    $record.result_summary = $summary | ConvertTo-Json -Compress
+    $record.target_list = $target_item_array | ConvertTo-Json -Compress
 
-    Global:ADTidy_Records_sql_update -Fields $users_record
+    Global:ADTidy_Records_sql_update -Fields $record
 }
+
 #endregion
-
-#region computers
-if ($flag_inventory_computers -eq $true ) {
-    Global:ADTidy_Inventory_Computers_sql_table_check
-    $computers_max_insert_total_reached = $false
-
-    #region record init
-    $computers_record = $record_template | Select-Object *
-    $computers_record.record_type = "AdTidy.inventory"
-    $computers_record.rule_name = "computers"
-    $computers_record.target_list = @()
-
-
-    $computers_summary = $summary_template | Select-Object *
-    $computers_summary.database = 0
-    $computers_summary.retrieved = 0
-    $computers_summary.updated = 0
-    $computers_summary.created = 0
-    $computers_summary.deleted = 0
-
-    $computers_record.result_summary = $computers_summary | ConvertTo-Json -Compress
-
-    $computers_target_item_array = @()
-    #endregion
-
-    $last_update = Global_ADTidy_Iventory_Computers_last_update
-
-    if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
-        $filter = "*"
-    }
-    else {
-    
-        $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
-        $filter = "whenchanged -gt '$filter_date'"
-    }
-    Global:log -text ("retrieving computers from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Users"
-
-    #region chunking, max { $global:Config.Configurations.inventory.'max insert limit' } records at a time
-    
-    $sorting_array_computers = Get-ADComputer -filter $filter -Properties whenchanged, objectguid -Server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
-
-    if ( $sorting_array_computers.count -gt $global:Config.Configurations.inventory.'max insert limit' ) {
-        Global:log -text ("Too many Users records for single run import ({0} records, configured limit is {1})" -F $sorting_array_computers.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Computers" -type warning
-        $computers_max_insert_total_reached = $true
-
-        $chunked_computers_array = $sorting_array_computers | Sort-Object whenChanged  | Select-Object -first $global:Config.Configurations.inventory.'max insert limit'
-        
-
-        $filter_date = get-date ($chunked_computers_array | Sort-Object whenChanged -Descending | Select-Object -first 1 -ExpandProperty whenchanged) | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
-        $filter = "whenchanged -le '$filter_date'"
-        Global:log -text ("Updated filter='{0}'" -F $filter) -Hierarchy "Main:Computers"
-        $new_array_computers = Get-ADComputer -filter $filter -Properties whenchanged, objectguid -Server $global:Config.Configurations.'target domain controller' | Select-Object whenChanged, objectguid | Sort-Object whenChanged
-        Global:log -text ("New array records='{0}'" -F $new_array_computers.count) -Hierarchy "Main:Computers"
-    }
-    else {
-        Global:log -text ("Records count can be processed in one go ({0} records, configured limit is {1}" -F $sorting_array_computers.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
-    }
-    #endregion
-    
-    $computers = @()
-
-    #region delta changes
-    <# PRD#>
-    Get-ADComputer -properties $global:config.Configurations.inventory.'Computers Active Directory Attributes' -filter $filter -Server $global:Config.Configurations.'target domain controller' | ForEach-Object { 
-        <# DEV 
-Get-ADUser  -properties $global:config.Configurations.inventory.'Active Directory Attributes' -filter "samaccountname -eq 'har3005'"  | ForEach-Object { #> 
-
-
-        $this_row = $_
-        $this_calculated_row = "" | Select-Object ignore
-
-        $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
-            $this_attribute = $_
-            $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
-            Switch ( $this_attribute ) {
-                "lastLogonTimestamp" {
-                    $AccountExpiresRaw = [string]($this_row."$this_attribute")
-                    if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
-                        $AccountExpires = $null
-                    }
-                    else {
-                        $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                        if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
-                    }
-                    if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                    ELSE { $CalulatedValue = "$AccountExpires" }
-                           
-                    $this_calculated_row."$this_attribute" = $CalulatedValue
-
-                }
-                "whenChanged" {
-                    TRY {
-                        $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                        $this_calculated_row."$this_attribute" = $CalulatedValue 
-                    }
-                    CATCH {
-                        $this_calculated_row."$this_attribute" = $null
-                    }
-                    #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                
-                }
-                "whenCreated" {
-                    TRY {
-                        $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                        $this_calculated_row."$this_attribute" = $CalulatedValue 
-                    }
-                    CATCH {
-                        $this_calculated_row."$this_attribute" = $null
-                    }
-                    #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                }
-                default {
-                    $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                    if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                }
-
-            }
-        }
-    
-        $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, enabled)
-        $computers += $this_calculated_row
-
-    }
-
-    if ( $computers.Count -eq 0 ) {
-        Global:log -text ("No  computers objects changes found" -F $computers.Count) -Hierarchy "Main:Computers:delta changes" -type warning
-    }
-    else {
-        Global:log -text ("{0} computers objects retrieved" -F $computers.Count) -Hierarchy "Main:Computers:delta changes"
-
-        $computers | Select-Object * -ExcludeProperty  objectclass, DNSHostName, UserPrincipalName | ForEach-Object {
-            $this_computer = $_
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_computer.samaccountname
-            switch ( Global:ADTidy_Inventory_Computers_sql_update -Fields $this_computer) {
-                "update" {
-                    $this_record_item.action = "updated"
-                    $computers_summary.updated++
-                }
-                "new" {
-                    $this_record_item.action = "created"
-                    $computers_summary.created++
-                }
-            }
-            $computers_target_item_array += $this_record_item
-        }
-
-    }
-    #endregion
-
-    #region deleted records detect
-    $sql_current_records = Global_ADTidy_Iventory_Computers_all_current_records 
-    $ad_current_records = Get-Adcomputer -filter * -Properties objectguid  -Server $global:Config.Configurations.'target domain controller' | Select-Object -ExpandProperty objectguid
-    $computers_summary.retrieved = $ad_current_records.Count
-    $computers_summary.database = $sql_current_records.Count
-
-    Global:log -text ("SQL:{0} current records, AD:{1} current records " -F $sql_current_records.Count, $ad_current_records.Count) -Hierarchy "Main:Computers:deleted detect"
-    $flag_deleted = 0
-
-    $sql_current_records | ForEach-Object {
-        $this_sql_record = $_
-        if ( $ad_current_records -notcontains $this_sql_record.ad_objectguid) {
-            Global:log -text ("Detected a deleted AD account:'{0}' " -F ($this_sql_record | Select-Object ad_samaccountname, ad_objectguid, ad_sid | ConvertTo-Json -Compress)) -Hierarchy "Main:Computers:deleted detect"
-            $delete_record = $this_sql_record | Select-Object @{name = 'Objectguid'; expression = { $_.ad_ObjectGUID } }, record_status
-            $delete_record.record_status = "Deleted"
-            Global:ADTidy_Inventory_Computers_sql_update -Fields $delete_record
-            $flag_deleted = 1
-            $computers_summary.deleted++
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_sql_record.ad_samaccountname
-            $this_record_item.action = "deleted"
-            $computers_target_item_array += $this_record_item
-
-
-        }
-    }
-    if ( $flag_deleted -eq 0) {
-        Global:log -text ("No deleted computer record found." ) -Hierarchy "Main:Computers:deleted detect" -type warning
-
-    }
-    #endregion
-
-    #region missing records
-    if ( $sql_current_records.Count -lt $ad_current_records.Count -and $computers_max_insert_total_reached -eq $false) {
-        Global:log -text ("sql_current_records.Count < ad_current_records.Count, {0} missing records in database.... " -F ($ad_current_records.Count - $sql_current_records.Count) ) -Hierarchy "Main:Computers:missing records" -type warning
-        $existing_sql_objects_guid = ( $sql_current_records | Select-Object -ExpandProperty ad_objectguid )
-        $computers_missing = @()
-        $computers_missing_count = 0
-        $ad_current_records | ForEach-Object {
-            $this_ad_record = $_
-            #Global:log -text ("checking guid={0}" -F $this_ad_record.guid) -Hierarchy "Main:Ou:missing records" 
-            if ( $existing_sql_objects_guid -notcontains $this_ad_record.guid -and $computers_missing_count -lt $global:Config.Configurations.inventory.'max missing records') {
-                $computers_missing_count++
-                Global:log -text ("missing object guid={0}" -F $this_ad_record.guid ) -Hierarchy "Main:Computers:missing records" 
-                $filter = "objectguid -eq  '{0}'" -F $this_ad_record.guid
-                Get-ADComputer -properties $global:config.Configurations.inventory.'Computers Active Directory Attributes' -filter $filter  -Server $global:Config.Configurations.'target domain controller' | ForEach-Object { 
-                    $this_row = $_
-                    $this_calculated_row = "" | Select-Object ignore
-
-                    $this_row | Get-Member | Where-Object { $_.membertype -eq "property" } | Select-Object -ExpandProperty name | ForEach-Object {
-                        $this_attribute = $_
-                        $this_calculated_row = $this_calculated_row | Select-Object *, $this_attribute
-                        Switch ( $this_attribute ) {
-                            "lastLogonTimestamp" {
-                                $AccountExpiresRaw = [string]($this_row."$this_attribute")
-                                if ( $AccountExpiresRaw -eq "9223372036854775807" ) { 
-                                    $AccountExpires = $null
-                                }
-                                else {
-                                    $AccountExpires = [datetime]::FromFileTime($AccountExpiresRaw).ToString("yyyy-MM-dd HH:mm:ss") 
-                                    if ( $AccountExpires -eq '1601-01-01 01:00:00' ) { $AccountExpires = $null }
-                                }
-                                if ( $AccountExpires.Length -eq 0 ) { $CalulatedValue = "NULL" }
-                                ELSE { $CalulatedValue = "$AccountExpires" }
-                           
-                                $this_calculated_row."$this_attribute" = $CalulatedValue
-
-                            }
-                            "whenChanged" {
-                                TRY {
-                                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                                }
-                                CATCH {
-                                    $this_calculated_row."$this_attribute" = $null
-                                }
-                                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                
-                            }
-                            "whenCreated" {
-                                TRY {
-                                    $CalulatedValue = '{0:yyyy-MM-dd HH:mm:ss}' -f $this_row."$this_attribute"
-                                    $this_calculated_row."$this_attribute" = $CalulatedValue 
-                                }
-                                CATCH {
-                                    $this_calculated_row."$this_attribute" = $null
-                                }
-                                #write-host ( "   > {0} - {1}" -F ($this_row."$this_attribute"), $this_attribute)
-                
-                            }
-                            default {
-                                $this_calculated_row."$this_attribute" = $this_row."$this_attribute" -replace "'", "''" 
-                                if (([string]$this_row."$this_attribute").length -eq 0 ) { $this_calculated_row."$this_attribute" = "NULL" }
-                            }
-
-                        }
-                    }
-    
-                    $this_calculated_row = ($this_calculated_row | Select-Object * -ExcludeProperty ignore, surname, enabled, objectclass, UserPrincipalName, DNSHostName )
-                    $computers_missing += $this_calculated_row
-
-                }
-
-            }
-        
-        }
-        if ( $computers_missing_count -eq $global:Config.Configurations.inventory.'max missing records' ) {
-            Global:log -text ("Max missing records count reached ({0})" -F $global:Config.Configurations.inventory.'max missing records' ) -Hierarchy "Main:Computers:missing records" -type warning
-        }
-
-        $computers_missing | ForEach-Object {
-            $this_computer = $_
-            $this_record_item = $target_item_template | Select-Object *
-            $this_record_item.name = $this_computer.SamAccountName
-            switch ( Global:ADTidy_Inventory_Computers_sql_update -Fields $this_computer) {
-                "update" {
-                    $this_record_item.action = "updated"
-                    $computers_summary.updated++
-                }
-                "new" {
-                    $this_record_item.action = "created"
-                    $computers_summary.created++
-
-                }
-            }
-        
-
-            $computers_target_item_array += $this_record_item
-        }
-    }
-    else {
-        Global:log -text ("sql_current_records.Count({1}) = ad_current_records.Count({0}), computer_max_insert_total_reached={2}. not running missing records insert scriptblock" -F $ad_current_records.Count , $sql_current_records.Count, $computers_max_insert_total_reached ) -Hierarchy "Main:Users:missing records" -type warning
-    }
-    #endregion
-    $computers_record.result_summary = $computers_summary | ConvertTo-Json -Compress
-    $computers_record.target_list = $computers_target_item_array | ConvertTo-Json -Compress
-    Global:ADTidy_Records_sql_update -Fields $computers_record
-}
-#endregion
+exit
 
 #region Groups
 if ($flag_inventory_groups -eq $true ) {
@@ -1054,16 +516,16 @@ if ($flag_inventory_groups -eq $true ) {
     #endregion
 
     $last_update = Global_ADTidy_Iventory_Groups_last_update
-
     if ( ([string]$last_update.maxrecord).Length -eq 0 ) {
+        $groups_first_run = $true
         $filter = "*"
     }
     else {
-    
+        $groups_first_run = $false
         $filter_date = get-date $last_update.maxrecord  | ForEach-Object touniversaltime | get-date -format yyyyMMddHHmmss.0Z
         $filter = "whenchanged -gt '$filter_date'"
     }
-    Global:log -text ("retrieving groups from AD, filter='{0}'" -F $filter) -Hierarchy "Main:Groups"
+    Global:log -text ("retrieving groups from AD, filter='{0}', first-run='{1}'" -F $filter) -Hierarchy "Main:Groups"
 
     #region chunking, max { $global:Config.Configurations.inventory.'max insert limit' } records at a time
     
@@ -1085,6 +547,8 @@ if ($flag_inventory_groups -eq $true ) {
     else {
         Global:log -text ("Records count can be processed in one go ({0} records, configured limit is {1})" -F $sorting_array_groups.count, $global:Config.Configurations.inventory.'max insert limit') -Hierarchy "Main:Users" -type warning
     }
+
+
     #endregion
 
     

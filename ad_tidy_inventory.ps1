@@ -6,12 +6,12 @@ $Global:Version = "1.0.0"
 $Global:Version = "1.0.1"
 # HAR3005, Primeo-Energie, 20240301
 #    Added group nested membership lookup
-$Global:Version = "1.0.2"
+$Global:Version = "2.0.0"
 # HAR3005, Primeo-Energie, 20240307
-#   handler through loop
+#   loop instead of code block per object types
+#   summary gathering in records table
+#   chunking based on configuration to avoid full dump of thousands of records
 #endregion
-
-
 
 #region ## global configuration variables
 $Global:Debug = $true

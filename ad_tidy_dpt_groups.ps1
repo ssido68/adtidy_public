@@ -158,11 +158,23 @@ function group_attributes_update {
         $manager,
         $hashtags,
         $target_ou,
-        $existing_object
+        $existing_object,
+        $group_type
 
     )
 
     #region return object
+    $status_log_row_template = "" | Select-Object group_type, group_name, group_distinguishedname, group_objectguid, flag_exists, flag_membership_changed, flag_reporting, action_logs, action_type
+
+    $status_log_action_log_row_template = "" | Select-Object timestamp, type, target, result
+
+    $status_log_row_template.group_type = $group_type
+    $status_log_row_template.group_name = $name
+    
+    $status_log_row_template.flag_exists = $false
+    $status_log_row_template.flag_membership_changed = $false
+    $status_log_row_template.flag_reporting = $false
+    $status_log_row_template.action_logs = @()
 
 
     #endregion
@@ -174,16 +186,19 @@ function group_attributes_update {
 
     if ( $existing_object.objectguid -eq $null) {
         $mode = "new"
+        $status_log_row_template.flag_reporting = $true
     }
     else {
+        $status_log_row_template.flag_exists = $true
+        $status_log_row_template.group_objectguid = $existing_object.objectguid
         if ( $existing_object.managedby -eq $manager -and $existing_object.extensionattribute1 -eq $hashtags) {
             $mode = "skip"
         }
         else {
             $mode = "update"
+            $status_log_row_template.flag_reporting = $true
         }
     }
-
 
     Global:log -text ("record mode:{0}" -F $mode) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
     switch ($mode) {
@@ -191,19 +206,135 @@ function group_attributes_update {
             $groupParams = @{
                 "Name"          = $this_department_hr_group
                 "Path"          = $global:hr_departments_ou
-                "ManagedBy"     = $manager
                 "GroupScope"    = $global:group_scope 
                 "GroupCategory" = $global:group_security
             }
+            write-host ( "----> {0}" -f ($groupParams | ConvertTo-Json -Compress))
             Global:log -text ("creating new group:{0}" -F ($groupParams | ConvertTo-Json -Compress)) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
-            exit
+
+            $this_action_log_row = $status_log_action_log_row_template | Select-Object *
+            $this_action_log_row.timestamp = Get-Date
+            $this_action_log_row.type = "create"
+            $this_action_log_row.target = $name
+            $flag_group_create_success = $true
+            try {
+                # attempt to create the missing group
+           
+                New-ADGroup @groupParams #-GroupScope $global:group_scope -GroupCategory $global:group_security
+                Global:log -text ("delay after group creation") -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)  -type warning
+                Start-Sleep -Seconds 1
+                $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
+
+                $this_action_log_row.result = 'success'
+                $status_log_row_template.action_logs += $this_action_log_row
+                
+            
+            }
+            catch {
+                # Catch and handle the error
+                $error_details = $_.Exception.Message
+                $flag_group_create_success = $false
+                Global:log -text (" ! group creation failed:{0}" -F $error_details) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)  -type error
+                $this_action_log_row.result = 'failed:{0}' -F $error_details 
+                $status_log_row_template.action_logs += $this_action_log_row
+
+            }
+            if (  $flag_group_create_success -eq $true) {
+                Global:log -text (" - group creation success") -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) 
+
+
+                Global:log -text ("setting hashtag(extensionattribute1) and manager..." ) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
+
+                $this_action_log_row = $status_log_action_log_row_template | Select-Object *
+                $this_action_log_row.timestamp = Get-Date
+                $this_action_log_row.type = "set extensionattribute1, manager"
+                $this_action_log_row.target = "'{0}','{1}'" -F ($hashtags | ConvertTo-Json -compress), $manager
+                $flag_group_set_hashtags_success = $true
+                
+                $status_log_row_template.group_objectguid = Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row_template.group_name) -Properties objectguid | Select-Object -ExcludeProperty objectguid
+                try {
+                    # Attempt to update extensionattribute1
+                    Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row_template.group_name) | Set-ADGroup -Replace @{"extensionattribute1" = ($hashtags -join " "); "managedBy" = $manager }
+                    Global:log -text (" > extensionattribute1 updated successfully") -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
+
+                    $this_action_log_row.result = "success"
+                    $status_log_row_template.action_logs += $this_action_log_row
+                    
+
+                }
+                catch {
+                    # Catch and handle the error
+                    $error_details = $_.Exception.Message
+                    Global:log -text (" > extensionattribute1 update failed:{0}" -F $error_details) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) -type error
+
+                    $this_action_log_row.result = 'failed:{0}' -F $error_details 
+                    $status_log_row_template.action_logs += $this_action_log_row
+                }
+            }
+
         }
         "update" { 
-            $groupParams = @{
-                "Name"      = $this_department_hr_group
-                "ManagedBy" = $manager
+            if ( $existing_object.managedby -ne $manager ) {
+
+                Global:log -text ("updating manager..." ) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
+
+                $this_action_log_row = $status_log_action_log_row_template | Select-Object *
+                $this_action_log_row.timestamp = Get-Date
+                $this_action_log_row.type = "update managedby"
+                $this_action_log_row.target = $manager
+                $flag_group_set_manager_success = $true
+
+                try {
+                    # Attempt to update extensionattribute1
+                    Get-ADGroup -Filter ('objectguid -eq "{0}"' -F $existing_object.objectguid) | Set-ADGroup -Replace @{"managedby" = $manager }
+                    Global:log -text (" > managedby updated successfully") -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
+
+                    $this_action_log_row.result = "success"
+                    $this_action_log_row.target = @{"managedby" = $manager } | ConvertTo-Json
+                    $status_log_row_template.action_logs += $this_action_log_row
+
+                }
+                catch {
+                    # Catch and handle the error
+                    $error_details = $_.Exception.Message
+                    Global:log -text (" > managedby update failed:{0}" -F $error_details) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) -type error
+
+                    $this_action_log_row.result = 'failed:{0}' -F $error_details 
+                    $this_action_log_row.target = @{"managedby" = $manager } | ConvertTo-Json
+                    $status_log_row_template.action_logs += $this_action_log_row
+                }
+
             }
-            Global:log -text ("Updating group objectguid:{1} new group:{0}" -F ($groupParams | ConvertTo-Json -Compress), $objectguid) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
+
+            if ( $existing_object.extensionattribute1 -ne ($hashtags -join " ") ) {
+
+                Global:log -text ("updating extensionattribute1..." ) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
+
+                $this_action_log_row = $status_log_action_log_row_template | Select-Object *
+                $this_action_log_row.timestamp = Get-Date
+                $this_action_log_row.type = "update extensionattribute1"
+                $this_action_log_row.target = ($hashtags -join " ")
+                $flag_group_set_extensionattribute1_success = $true
+
+                try {
+                    # Attempt to update extensionattribute1
+                    Get-ADGroup -Filter ('objectguid -eq "{0}"' -F $existing_object.objectguid) | Set-ADGroup -Replace @{"extensionattribute1" = ($hashtags -join " ") }
+                    Global:log -text (" > extensionattribute1 updated successfully") -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
+
+                    $this_action_log_row.result = "success"
+                    $status_log_row_template.action_logs += $this_action_log_row
+
+                }
+                catch {
+                    # Catch and handle the error
+                    $error_details = $_.Exception.Message
+                    Global:log -text (" > extensionattribute1 update failed:{0}" -F $error_details) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) -type error
+
+                    $this_action_log_row.result = 'failed:{0}' -F $error_details 
+                    $status_log_row_template.action_logs += $this_action_log_row
+                }
+
+            }
 
         }
         "skip" {
@@ -211,104 +342,22 @@ function group_attributes_update {
         }
     }
 
-
-    return 
-    if (0) {
-
-        $groupParams = @{
-            "Name" = $this_department_hr_group
-            "Path" = $global:hr_departments_ou
-            
-        }
-        try {
-            # attempt to create the missing group
-           
-            # Create a new Active Directory group using the array of parameters
-            Global:log -text (" > Done") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department_hr_group ) 
-            New-ADGroup @groupParams -GroupScope $global:group_scope -GroupCategory $global:group_security
-            Global:log -text (" delay...") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department_hr_group )  -type warning
-            #Start-Sleep -Seconds 1
-            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
-            $log_record.timestamp = get-date
-            $log_record.type = "create group"
-            $log_record.result = 'success'
-            $log_record.target = $global:hr_departments_ou
-            $status_log_row.action_logs = @($log_record)
-            $status_log_row.flag_reporting = $true
-            
-        }
-        catch {
-            # Catch and handle the error
-            $error_details = $_.Exception.Message
-            $flag_segment_group_update_success = 0
-            Global:log -text (" > group created/updated failed:{0}" -F $error_details) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department_hr_group ) -type error
-            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
-            $log_record.timestamp = get-date
-            $log_record.type = "create group"
-            $log_record.result = 'failed:{0}' -F $error_details 
-            $log_record.target = $global:hr_departments_ou
-            $status_log_row.action_logs = @($log_record)
-            $status_log_row.flag_reporting = $true
-
-        }
-
-        Global:log -text ("Updating managedBy attribute") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department_hr_group ) 
-        try {
-            # Attempt to update the group manager
-            Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group_name) | Set-ADGroup -Replace @{"managedby" = $global:hr_department_ou_manager }
-            Global:log -text (" > Manager updated successfully") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department_hr_group ) 
-
-            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
-            $log_record.timestamp = get-date
-            $log_record.type = "update managedBy attributes"
-            $log_record.result = "success"
-            $log_record.target = @{"managedby" = $global:hr_department_ou_manager; } | ConvertTo-Json
-            $status_log_row.action_logs = @($log_record)
-            $status_log_row.flag_reporting = $true
-
-        }
-        catch {
-            # Catch and handle the error
-            $error_details = $_.Exception.Message
-            Global:log -text (" > Manager update failed:{0}" -F $error_details) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department_hr_group ) -type error
-            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
-            $log_record.timestamp = get-date
-            $log_record.type = "update managedBy attributes"
-            $log_record.result = 'failed:{0}' -F $error_details 
-            $log_record.target = @{"managedby" = $global:hr_department_ou_manager; } | ConvertTo-Json
-            $status_log_row.action_logs += $log_record
-            $status_log_row.flag_reporting = $true
-        }
-
-        Global:log -text ("Updating extensionattribute1 (hastags) attribute") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department_hr_group ) 
-        try {
-            # Attempt to update the group manager
-            Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row.group_name) | Set-ADGroup -Replace @{"extensionattribute1" = ($hr_ou_hashtags -join " ") }
-            Global:log -text (" > extensionattribute1 updated successfully") -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department_hr_group ) 
-
-            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
-            $log_record.timestamp = get-date
-            $log_record.type = "update extensionattribute1 attribute"
-            $log_record.result = "success"
-            $log_record.target = @{"extensionattribute1" = ($hr_ou_hashtags -join " "); } | ConvertTo-Json
-            $status_log_row.action_logs = @($log_record)
-            $status_log_row.flag_reporting = $true
-
-        }
-        catch {
-            # Catch and handle the error
-            $error_details = $_.Exception.Message
-            Global:log -text (" > extensionattribute1 update failed:{0}" -F $error_details) -Hierarchy ("DepartmentGroups:{0}>{1}" -F $this_segment, $this_department_hr_group ) -type error
-            $log_record = $status_log_action_log_row_template | Select-Object * # timestamp, type, target, result
-            $log_record.timestamp = get-date
-            $log_record.type = "update extensionattribute1 attribute"
-            $log_record.result = 'failed:{0}' -F $error_details 
-            $log_record.target = @{"extensionattribute1" = ($hr_ou_hashtags -join " "); } | ConvertTo-Json
-            $status_log_row.action_logs += $log_record
-            $status_log_row.flag_reporting = $true
-        }
-    }
+    return $status_log_row_template
     Global:log -text ("End") -Hierarchy ("function:group_update") 
+
+
+}
+
+
+function group_members_update {
+    [Parameter(Mandatory = $true)] [string]$objectguid, 
+    [Parameter(Mandatory = $true)] [array]$members,
+    [Parameter(Mandatory = $true)] [array]$report_record
+    
+
+    Global:log -text ("Start") -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) 
+
+    Global:log -text ("End") -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) 
 
 
 }
@@ -323,6 +372,8 @@ $it_department_groups_existing = Get-ADGroup -SearchBase ($global:it_departments
 Global:log -text ("`$raw_data_departments_groupby count :{0}" -f $raw_data_departments_groupby.count ) -Hierarchy "Main:Department Loop" 
 Global:log -text ("`$hr_department_groups_existing count :{0}" -f $hr_department_groups_existing.count ) -Hierarchy "Main:Department Loop" 
 Global:log -text ("`$it_department_groups_existing count :{0}" -f $it_department_groups_existing.count ) -Hierarchy "Main:Department Loop" 
+$action_report = @()
+
 
 $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | ForEach-Object { #loop through company (segments) from the groupby array
     $this_segment = $_
@@ -339,7 +390,24 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
         Global:log -text ("`$this_department_hr_group : {0}" -f $this_department_hr_group ) -Hierarchy ("Main:Department Loop:{0}:{1}" -F $this_segment, $this_department_row.department) 
         $this_department_hr_group = ( "{1}{0}" -F $this_department_row.department, $global:Config.Configurations.'company groups'.hr_groups_prefix )
         #region update/creation
-        group_attributes_update -name $this_department_hr_group -manager $global:hr_department_ou_manager -target_ou $global:hr_departments_ou -existing_object ( $hr_department_groups_existing | Where-Object { $_.name -eq $this_department_hr_group } ) -hashtags $hr_ou_hashtags
+        $report_record = group_attributes_update -name $this_department_hr_group -manager $global:hr_department_ou_manager -target_ou $global:hr_departments_ou -existing_object ( $hr_department_groups_existing | Where-Object { $_.name -eq $this_department_hr_group } ) -hashtags $hr_ou_hashtags -group_type "HR"
+        $action_report += $this_group_attribute_update_result
+
+        if ( $report_record.flag_reporting -eq $true ) {
+            write-host ( "{0}" -F ($report_record | ConvertTo-Json -Compress -Depth 5))
+            exit
+        }
+
+        #region current memberships
+        $hr_group_current_members = Get-ADGroupMember -Identity $report_record.group_objectguid
+        Global:log -text ("current group members amount : {0}" -f $hr_group_current_members.count ) -Hierarchy ("Main:Department Loop:{0}:{1}" -F $this_segment, $this_department_row.department) 
+        #endregion
+
+        
+
+        $report_record_update = group_members_update -objectguid $report_record.group_objectguid -members ($this_department_row.group | Select-Object -ExpandProperty distinguishedName) -report_record $report_record
+        exit
+
         #endregion
         #region memberships
         #endregion

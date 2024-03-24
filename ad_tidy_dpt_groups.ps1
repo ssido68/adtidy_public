@@ -209,7 +209,7 @@ function group_attributes_update {
                 "GroupScope"    = $global:group_scope 
                 "GroupCategory" = $global:group_security
             }
-            write-host ( "----> {0}" -f ($groupParams | ConvertTo-Json -Compress))
+            #write-host ( "----> {0}" -f ($groupParams | ConvertTo-Json -Compress))
             Global:log -text ("creating new group:{0}" -F ($groupParams | ConvertTo-Json -Compress)) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand)
 
             $this_action_log_row = $status_log_action_log_row_template | Select-Object *
@@ -251,7 +251,8 @@ function group_attributes_update {
                 $this_action_log_row.target = "'{0}','{1}'" -F ($hashtags | ConvertTo-Json -compress), $manager
                 $flag_group_set_hashtags_success = $true
                 
-                $status_log_row_template.group_objectguid = Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row_template.group_name) -Properties objectguid | Select-Object -ExcludeProperty objectguid
+                $status_log_row_template.group_objectguid = (Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row_template.group_name) -Properties objectguid | Select-Object -ExpandProperty objectguid).Guid
+
                 try {
                     # Attempt to update extensionattribute1
                     Get-ADGroup -Filter ('name -eq "{0}"' -F $status_log_row_template.group_name) | Set-ADGroup -Replace @{"extensionattribute1" = ($hashtags -join " "); "managedBy" = $manager }
@@ -350,18 +351,69 @@ function group_attributes_update {
 
 
 function group_members_update {
-    [Parameter(Mandatory = $true)] [string]$objectguid, 
-    [Parameter(Mandatory = $true)] [array]$members,
-    [Parameter(Mandatory = $true)] [array]$report_record
+    param (
+        [Parameter(Mandatory = $true)] $objectguid, 
+        [Parameter(Mandatory = $false)] [array]$members_current,
+        [Parameter(Mandatory = $true)] [array]$members_retrieved,
+        [Parameter(Mandatory = $true)] [array]$report_record
+    )
+    
+
+    $returned_report_record = $report_record | Select-Object *
     
 
     Global:log -text ("Start") -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) 
+    
+    #region checking missing members
+    $added_members = @()
+    $members_retrieved | ForEach-Object {
+        $this_retrieved_member = $_
+        if ( $members_current -notcontains $this_retrieved_member) {
+            Global:log -text ("  + missing member : {0}" -F $this_retrieved_member) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) 
+            $added_members += $this_retrieved_member
+            Get-ADGroup -Identity $objectguid | Add-ADGroupMember -Members $this_retrieved_member
+            $returned_report_record.flag_membership_changed = $true
+        }
+    }
+
+    #endregion
+
+
+    #region checking removed members
+    $removed_members = @()
+    $members_current | ForEach-Object {
+        $this_current_member = $_
+        if ( $members_retrieved -notcontains $this_current_member) {
+            Global:log -text ("  - removed member : {0}" -F $this_current_member) -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) -type warning
+            $removed_members += $this_current_member
+            Get-ADGroup -Identity $objectguid |  Remove-ADGroupMember -Members $this_current_member -Confirm:$false
+            $returned_report_record.flag_membership_changed = $true
+        }
+    }
+    #endregion
+
+
+    if ($removed_members.count -ne 0 -or $added_members -ne 0 ) {
+
+        $this_action_log_row = $status_log_action_log_row_template | Select-Object *
+        $this_action_log_row.timestamp = Get-Date
+        $this_action_log_row.type = "membership changed"
+        $this_action_log_row.target = "added:{0}, removed:{1}" -F $added_members.count, $removed_members.count
+        $details = "" | Select-Object added, removed
+        $details.added = $added_members
+        $details.removed = $removed_members
+        $this_action_log_row.result = $details | ConvertTo-Json -Compress
+        $returned_report_record.action_logs += $this_action_log_row
+
+    }
 
     Global:log -text ("End") -Hierarchy ("function:{0}" -F $MyInvocation.MyCommand) 
+    return $returned_report_record
 
 
 }
 #endregion
+
 
 #region group loop
 Global:log -text ("Start") -Hierarchy "Main:Department Loop" 
@@ -392,24 +444,17 @@ $raw_data_departments_groupby | Select-Object -Unique -ExpandProperty company | 
         #region update/creation
         $report_record = group_attributes_update -name $this_department_hr_group -manager $global:hr_department_ou_manager -target_ou $global:hr_departments_ou -existing_object ( $hr_department_groups_existing | Where-Object { $_.name -eq $this_department_hr_group } ) -hashtags $hr_ou_hashtags -group_type "HR"
         $action_report += $this_group_attribute_update_result
-
-        if ( $report_record.flag_reporting -eq $true ) {
-            write-host ( "{0}" -F ($report_record | ConvertTo-Json -Compress -Depth 5))
-            exit
-        }
-
+        #endregion
+        
+        #region memberships
         #region current memberships
-        $hr_group_current_members = Get-ADGroupMember -Identity $report_record.group_objectguid
+        $hr_group_current_members = Get-ADGroupMember -Identity $report_record.group_objectguid | Select-Object -ExpandProperty distinguishedName
         Global:log -text ("current group members amount : {0}" -f $hr_group_current_members.count ) -Hierarchy ("Main:Department Loop:{0}:{1}" -F $this_segment, $this_department_row.department) 
         #endregion
 
-        
+        $members_retrieved = $this_department_row.group | Select-Object -ExpandProperty distinguishedName
 
-        $report_record_update = group_members_update -objectguid $report_record.group_objectguid -members ($this_department_row.group | Select-Object -ExpandProperty distinguishedName) -report_record $report_record
-        exit
-
-        #endregion
-        #region memberships
+        $report_record_update = group_members_update -objectguid $report_record.group_objectguid -members_current $hr_group_current_members -members_retrieved $members_retrieved -report_record $report_record 
         #endregion
         #endregion
 
